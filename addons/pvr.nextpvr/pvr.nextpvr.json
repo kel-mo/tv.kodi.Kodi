@@ -4,8 +4,8 @@
     "sources": [
         {
             "type": "git",
-            "url": "https://github.com/kodi-pvr/pvr.nextpvr",
-            "commit": "77d4057922c4fdf0455f8d359805cf17c35653f8"
+            "url": "https://github.com/kel-mo/pvr.nextpvr",
+            "commit": "992570af3a86a6c61cf8b21c8cdc7878675dce36"
         }
     ],
     "build-options": {
