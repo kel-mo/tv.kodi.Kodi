@@ -6,6 +6,10 @@
             "type": "git",
             "url": "https://github.com/xbmc/inputstream.ffmpegdirect",
             "commit": "3a3a626124ad42d4dbb28a801a17116775fba11e"
+        },
+        {
+            "type": "patch",
+            "path": "01-ffmpeg9-av_parser_parse2.patch"
         }
     ],
     "build-options": {
