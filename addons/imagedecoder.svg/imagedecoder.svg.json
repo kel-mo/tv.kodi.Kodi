@@ -5,7 +5,7 @@
         {
             "type": "git",
             "url": "https://github.com/xbmc/imagedecoder.svg",
-            "commit": "15aac0dbd088c17298865a38a73b66ebf508927c"
+            "commit": "cb50710f4d7ceb173c1608289b5dd49b003d9353"
         }
     ],
     "modules": [

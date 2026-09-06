@@ -13,7 +13,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.yabause",
-            "commit": "3043ce9aba588dde80e0aa1289dd6d92c4ac37e9"
+            "commit": "5c5ce1bdf906d39cef7a39161b34400c697e076f"
         }
     ],
     "modules": [
