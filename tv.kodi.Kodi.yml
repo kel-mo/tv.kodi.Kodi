@@ -2,6 +2,8 @@ app-id: tv.kodi.Kodi
 runtime: org.freedesktop.Platform
 runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.openjdk17
 command: kodi
 rename-icon: kodi
 rename-desktop-file: kodi.desktop
@@ -30,6 +32,13 @@ finish-args:
   - --system-talk-name=org.freedesktop.UPower
   - --talk-name=org.freedesktop.ScreenSaver
 
+add-extensions:
+  tv.kodi.Kodi.bdj:
+    directory: share/kodi/extra/bdj
+    bundle: true
+    autodelete: true
+    no-autodownload: true
+
 cleanup:
   - '*.a'
   - '*.la'
@@ -52,6 +61,8 @@ cleanup:
   - /share/locale
   - /share/man
   - /var
+cleanup-commands:
+  - mkdir -p ${FLATPAK_DEST}/share/kodi/extra
 modules:
   - name: avahi
     # ships only avahi-browse: inputstream.airplay shells out to it for DACP
@@ -268,13 +279,17 @@ modules:
         path: patches/libbdplus-fix-libgcrypt.patch
   - name: libbluray
     buildsystem: meson
+    build-options:
+      append-path: /usr/lib/sdk/openjdk17/bin
+      env:
+        JAVA_HOME: /usr/lib/sdk/openjdk17/jvm/openjdk-17
     config-opts:
       - -Ddefault_library=shared
       - -Denable_docs=false
-      - -Denable_tools=false
+      - -Denable_tools=true
       - -Denable_devtools=false
       - -Denable_examples=false
-      - -Dbdj_jar=disabled
+      - -Dbdj_jar=enabled
     sources:
       - type: archive
         url: https://download.videolan.org/pub/videolan/libbluray/1.5.0/libbluray-1.5.0.tar.xz
@@ -945,3 +960,27 @@ modules:
   - addons/visualization.spectrum/visualization.spectrum.json
   - addons/visualization.starburst/visualization.starburst.json
   - addons/visualization.waveform/visualization.waveform.json
+
+  - name: bdj
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/openjdk17/bin
+      no-debuginfo: true # keep bdj last
+    build-commands:
+      - jlink --module-path /usr/lib/sdk/openjdk17/jvm/openjdk-17/jmods
+        --add-modules java.base,java.desktop,java.logging,java.rmi,java.xml
+        --strip-debug --no-man-pages --no-header-files --compress=2
+        --output ${FLATPAK_DEST}/share/kodi/extra/bdj/jre
+      - find ${FLATPAK_DEST}/share/kodi/extra/bdj/jre -type f \( -name '*.so' -o -path '*/bin/*' \)
+        -exec strip --strip-unneeded {} +
+      - install -Dm644 -t ${FLATPAK_DEST}/share/kodi/extra/bdj/share/java ${FLATPAK_DEST}/share/java/libbluray-*.jar
+        && rm -r ${FLATPAK_DEST}/share/java
+      - install -Dm755 -t ${FLATPAK_DEST}/share/kodi/extra/bdj/bin ${FLATPAK_DEST}/bin/bd_info
+      - rm ${FLATPAK_DEST}/bin/bd_info ${FLATPAK_DEST}/bin/bd_list_titles ${FLATPAK_DEST}/bin/bd_splice
+      - install -Dm644 env.sh ${FLATPAK_DEST}/share/kodi/extra/bdj/env.sh
+      - install -Dm644 -t ${FLATPAK_DEST}/share/kodi/extra/bdj/share/metainfo tv.kodi.Kodi.bdj.metainfo.xml
+    sources:
+      - type: file
+        path: extensions/bdj/env.sh
+      - type: file
+        path: extensions/bdj/tv.kodi.Kodi.bdj.metainfo.xml
