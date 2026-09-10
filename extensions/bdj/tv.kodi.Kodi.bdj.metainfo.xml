@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="addon">
+  <id>tv.kodi.Kodi.bdj</id>
+  <extends>tv.kodi.Kodi</extends>
+  <name>Kodi: Blu-ray Java menus (BD-J)</name>
+  <summary>Java runtime for Blu-ray disc menus</summary>
+  <description>
+    <p>
+      Adds the Java runtime and libbluray support classes that Kodi needs to
+      play the interactive BD-J menus found on many Blu-ray discs. Without it
+      such discs still play, but Kodi falls back to the simple disc menu.
+    </p>
+    <p>
+      This extension is optional and fairly large, so it is not installed
+      automatically. Install it only if you play Blu-ray discs or disc images.
+    </p>
+  </description>
+  <url type="homepage">https://kodi.tv/</url>
+  <developer id="tv.kodi">
+    <name>Team Kodi</name>
+  </developer>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>LGPL-2.1-or-later AND GPL-2.0-only WITH Classpath-exception-2.0</project_license>
+</component>

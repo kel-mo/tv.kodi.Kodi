@@ -22,6 +22,26 @@ flatpak run tv.kodi.Kodi
 
 or just search for the installed app on your system
 
+## Blu-ray Java menus (BD-J)
+
+Many Blu-ray discs present their menus as a Java (BD-J) application. Support
+for these lives in a separate, optional Flatpak extension so that the app
+itself stays small: it bundles a trimmed Java runtime and adds roughly 50 MB.
+Discs still play without it, Kodi just falls back to the simple disc menu.
+
+```
+flatpak install flathub tv.kodi.Kodi.bdj
+```
+
+The extension also ships libbluray's `bd_info`, which reports whether BD-J was
+detected and whether a Java VM was found. Kodi's launcher sets up the
+environment automatically, but other commands do not, so source the extension's
+`env.sh` first:
+
+```
+flatpak run --command=sh tv.kodi.Kodi -c '. /app/share/kodi/extra/bdj/env.sh; bd_info /path/to/BDMV-or-iso'
+```
+
 ## Contributing
 
 The list of binary addons in each branch of Kodi may be found
