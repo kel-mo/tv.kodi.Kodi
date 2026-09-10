@@ -105,7 +105,9 @@ def wire_addon_json(module, ids):
 
     config_opts = data.setdefault("config-opts", [])
     # drop any stale install-prefix so PREFIX below stays authoritative
-    config_opts[:] = [o for o in config_opts if not o.startswith("-DCMAKE_INSTALL_PREFIX=")]
+    config_opts[:] = [
+        o for o in config_opts if o == PREFIX or not o.startswith("-DCMAKE_INSTALL_PREFIX=")
+    ]
     for opt in ("-DPACKAGE_ZIP=ON", PREFIX, "-DCMAKE_PREFIX_PATH=/app"):
         if opt not in config_opts:
             config_opts.append(opt)
