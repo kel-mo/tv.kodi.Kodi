@@ -29,21 +29,19 @@
             "buildsystem": "cmake-ninja",
             "build-options": {
                 "no-debuginfo": true,
-                "cflags": "-g0",
-                "cxxflags": "-g0"
+                "cflags": "-g0 -fPIC",
+                "cxxflags": "-g0 -fPIC"
             },
             "config-opts": [
                 "-DCMAKE_BUILD_TYPE=Release",
-                "-DBUILD_SHARED_LIBS=ON",
+                "-DBUILD_SHARED_LIBS=OFF",
                 "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"
             ],
             "cleanup": [
                 "/bin",
                 "/include",
                 "/lib/pkgconfig",
-                "/share/man",
-                "*.so",
-                "*.so.*"
+                "/share/man"
             ],
             "sources": [
                 {
@@ -58,20 +56,18 @@
             "buildsystem": "cmake-ninja",
             "build-options": {
                 "no-debuginfo": true,
-                "cflags": "-g0",
-                "cxxflags": "-g0"
+                "cflags": "-g0 -fPIC",
+                "cxxflags": "-g0 -fPIC"
             },
             "config-opts": [
                 "-DCMAKE_BUILD_TYPE=Release",
-                "-DBUILD_SHARED_LIBS=ON"
+                "-DBUILD_SHARED_LIBS=OFF"
             ],
             "cleanup": [
                 "/bin",
                 "/include",
                 "/lib/pkgconfig",
-                "/share/man",
-                "*.so",
-                "*.so.*"
+                "/share/man"
             ],
             "sources": [
                 {
@@ -86,11 +82,11 @@
             "buildsystem": "autotools",
             "build-options": {
                 "no-debuginfo": true,
-                "cflags": "-g0",
-                "cxxflags": "-g0"
+                "cflags": "-g0 -fPIC",
+                "cxxflags": "-g0 -fPIC"
             },
             "config-opts": [
-                "--disable-static"
+                "--disable-shared"
             ],
             "post-install": [
                 "sed -i '1i #include <inttypes.h>' /app/include/mpeg2dec/mpeg2.h"
@@ -99,9 +95,7 @@
                 "/bin",
                 "/include",
                 "/lib/pkgconfig",
-                "/share/man",
-                "*.so",
-                "*.so.*"
+                "/share/man"
             ],
             "sources": [
                 {
@@ -180,7 +174,8 @@
                         "patch -p1 < 0001-LIBRETRO-Split-libdeps.a-into-separate-archives-per-.patch",
                         "patch -p1 < 0002-LIBRETRO-Fix-missing-library-version.patch",
                         "patch -p1 < 0003-LIBRETRO-Patch-libmad-libretro-dependency.patch",
-                        "sed -i 's/^SUBMODULE_FAILED = .*/SUBMODULE_FAILED =/' backends/platform/libretro/dependencies.mk"
+                        "sed -i 's/^SUBMODULE_FAILED = .*/SUBMODULE_FAILED =/' backends/platform/libretro/dependencies.mk",
+                        "sed -i -E 's/^(this_lib_flags *:= *-lvorbis)$/\\1 -lvorbisfile/; s/^(this_lib_flags *:= *-ltheora)$/\\1 -ltheoradec/' backends/platform/libretro/dependencies.mk"
                     ]
                 }
             ]
@@ -188,7 +183,6 @@
     ],
     "post-install": [
         "bash $FLATPAK_BUILDER_BUILDDIR/gen-addon-metainfo.sh game.libretro.scummvm",
-        "cp -a /app/lib/libmad.so.0* /app/lib/libfaad.so.2* /app/lib/libmpeg2.so.0* /app/lib/kodi/addons/game.libretro.scummvm/",
         "mkdir -p /app/lib/kodi/addons/game.libretro.scummvm/resources/system",
         "unzip -o /app/share/libretro-scummvm/scummvm.zip -d /app/lib/kodi/addons/game.libretro.scummvm/resources/system"
     ]
