@@ -1,0 +1,210 @@
+From 0118f9666e40240829d848680df328bfe6d91b42 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Thu, 1 Oct 2026 15:36:57 +1000
+Subject: [PATCH] [guilib] Allow textures to keep subpixel positions
+
+CGUITexture rounds every corner of a texture to a whole pixel. That keeps
+static artwork crisp, but slow zoom and slide animations then move in
+one-pixel steps, which shows as judder on large screens, e.g. a slow
+Ken Burns pan in a picture add-on.
+
+Add an opt-in subpixel="true" texture attribute that skips the rounding
+of the screen x and y coordinates. Depth stays rounded, and textures
+without the attribute render exactly as before.
+---
+ xbmc/guilib/GUIControlFactory.cpp          |  2 ++
+ xbmc/guilib/GUIImage.dox                   |  2 ++
+ xbmc/guilib/GUITexture.cpp                 | 20 ++++++++++++-----
+ xbmc/guilib/GUITexture.h                   |  8 +++++++
+ xbmc/guilib/test/CMakeLists.txt            |  1 +
+ xbmc/guilib/test/TestGUIControlFactory.cpp | 22 +++++++++++++++++++
+ xbmc/guilib/test/TestGUITexture.cpp        | 25 ++++++++++++++++++++++
+ 7 files changed, 75 insertions(+), 5 deletions(-)
+ create mode 100644 xbmc/guilib/test/TestGUITexture.cpp
+
+diff --git a/xbmc/guilib/GUIControlFactory.cpp b/xbmc/guilib/GUIControlFactory.cpp
+index 0ae1c69ff7..3fdddfb921 100644
+--- a/xbmc/guilib/GUIControlFactory.cpp
++++ b/xbmc/guilib/GUIControlFactory.cpp
+@@ -447,6 +447,8 @@ bool CGUIControlFactory::GetTexture(const TiXmlNode* pRootNode,
+   const char* background = pNode->Attribute("background");
+   if (background && StringUtils::CompareNoCase(background, "true", 4) == 0)
+     image.useLarge = true;
++  const char* subpixel = pNode->Attribute("subpixel");
++  image.m_subpixel = subpixel && StringUtils::CompareNoCase(subpixel, "true") == 0;
+   image.filename = pNode->FirstChild() ? pNode->FirstChild()->Value() : "";
+   return true;
+ }
+diff --git a/xbmc/guilib/GUIImage.dox b/xbmc/guilib/GUIImage.dox
+index b4c80d7a0d..568d76c465 100644
+--- a/xbmc/guilib/GUIImage.dox
++++ b/xbmc/guilib/GUIImage.dox
+@@ -87,10 +87,12 @@ For the tags "texture" and "bordertexture", the following attributes are availab
+ | background    | Used on the <b>`<imagepath>`</b> tag. When set to "true", this forces the image to be loaded via the large texture manager (except for textures located in Textures.xbt).
+ | diffuse       | Specifies a diffuse texture which is "modulated" or multiplied with the texture in order to give specific effects, such as making the image gain transparency, or tint it in various ways. As it's applied per-pixel many effects are possible, the most popular being by a transparent reflection which slowly gets more and more opaque. This is achieved using a WHITE image where the transparency increases as you move down the texture.
+ | colordiffuse  | This specifies the color to be used for the texture basis. It's is specified in hexadecimal notation using the AARRGGBB format. If you define <b>`<texture colordiffuse="FFFFAAFF">texture.png</texture>`</b> (magenta), the image will be given a magenta tint when rendered. You can also specify this as a name from the colour theme, or you can also use $VAR and $INFO for dynamic values.
++| subpixel      | When set to "true", the texture keeps its fractional screen position instead of being snapped to whole pixels, so slow zoom and slide animations move smoothly rather than in one pixel steps. Best suited to photos and artwork that move; edges and 1 pixel lines are softer when the position is fractional, and labels drawn over the texture still snap to whole pixels. Defaults to "false".
+ 
+ @skinning_v20 <b>infill</b> New texture attribute added.
+ @skinning_v22 <b>imagefilter</b> New tag added.
+ @skinning_v22 <b>diffusefilter</b> New tag added.
++@skinning_v23 <b>subpixel</b> New texture attribute added.
+ 
+ --------------------------------------------------------------------------------
+ \section Image_Control_sect4 See also
+diff --git a/xbmc/guilib/GUITexture.cpp b/xbmc/guilib/GUITexture.cpp
+index c4e1dd6c8a..25e526da15 100644
+--- a/xbmc/guilib/GUITexture.cpp
++++ b/xbmc/guilib/GUITexture.cpp
+@@ -290,6 +290,13 @@ void CGUITexture::Render(int32_t depthOffset, int32_t overrideDepth)
+     CServiceBroker::GetWinSystem()->GetGfxContext().RestoreClipRegion();
+ }
+ 
++float CGUITexture::SnapToPixel(float coord, bool subpixel)
++{
++  if (subpixel)
++    return coord;
++  return static_cast<float>(MathUtils::round_int(static_cast<double>(coord)));
++}
++
+ void CGUITexture::Render(float left,
+                          float top,
+                          float right,
+@@ -324,20 +331,23 @@ void CGUITexture::Render(float left,
+ 
+   float x[4], y[4], z[4];
+ 
+-#define ROUND_TO_PIXEL(x) static_cast<float>(MathUtils::round_int(static_cast<double>(x)))
++#define ROUND_TO_PIXEL(x) SnapToPixel((x), m_info.m_subpixel)
++#define ROUND_DEPTH(x) SnapToPixel((x), false)
+ 
++  // clang-format off
+   x[0] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x1, vertex.y1));
+   y[0] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x1, vertex.y1));
+-  z[0] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y1));
++  z[0] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y1));
+   x[1] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x2, vertex.y1));
+   y[1] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x2, vertex.y1));
+-  z[1] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y1));
++  z[1] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y1));
+   x[2] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x2, vertex.y2));
+   y[2] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x2, vertex.y2));
+-  z[2] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y2));
++  z[2] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x2, vertex.y2));
+   x[3] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalXCoord(vertex.x1, vertex.y2));
+   y[3] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalYCoord(vertex.x1, vertex.y2));
+-  z[3] = ROUND_TO_PIXEL(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y2));
++  z[3] = ROUND_DEPTH(CServiceBroker::GetWinSystem()->GetGfxContext().ScaleFinalZCoord(vertex.x1, vertex.y2));
++  // clang-format on
+ 
+   if (y[2] == y[0]) y[2] += 1.0f;
+   if (x[2] == x[0]) x[2] += 1.0f;
+diff --git a/xbmc/guilib/GUITexture.h b/xbmc/guilib/GUITexture.h
+index 43c18ee5bd..46a633cb0c 100644
+--- a/xbmc/guilib/GUITexture.h
++++ b/xbmc/guilib/GUITexture.h
+@@ -44,6 +44,7 @@ public:
+   CRect      border;          // scaled  - unneeded if we get rid of scale on load
+   bool m_infill{
+       true}; // if false, the main body of a texture is not drawn. useful for borders with no inner filling
++  bool m_subpixel{false}; // if true, corners are not snapped to whole pixels, for smooth motion
+   int        orientation;     // orientation of the texture (0 - 7 == EXIForientation - 1)
+   std::string diffuse;         // diffuse overlay texture
+   KODI::GUILIB::GUIINFO::CGUIInfoColor diffuseColor; // diffuse color
+@@ -73,6 +74,13 @@ public:
+       float posX, float posY, float width, float height, const CTextureInfo& texture);
+   virtual CGUITexture* Clone() const = 0;
+ 
++  /*! \brief Screen coordinate of a texture corner.
++   \param coord the unsnapped screen coordinate
++   \param subpixel whether the texture keeps its fractional position
++   \return coord rounded to a whole pixel, or unchanged if subpixel
++   */
++  static float SnapToPixel(float coord, bool subpixel);
++
+   static void DrawQuad(const CRect& coords,
+                        KODI::UTILS::COLOR::Color color,
+                        CTexture* texture = nullptr,
+diff --git a/xbmc/guilib/test/CMakeLists.txt b/xbmc/guilib/test/CMakeLists.txt
+index e46112239a..d26bfe7816 100644
+--- a/xbmc/guilib/test/CMakeLists.txt
++++ b/xbmc/guilib/test/CMakeLists.txt
+@@ -6,6 +6,7 @@ set(SOURCES TestGUIControlFactory.cpp
+             TestGUILabel.cpp
+             TestGUIListItemLayout.cpp
+             TestGUITextLayout.cpp
++            TestGUITexture.cpp
+             TestGUIWindowOnAction.cpp
+             TestSkinMapManager.cpp
+ )
+diff --git a/xbmc/guilib/test/TestGUIControlFactory.cpp b/xbmc/guilib/test/TestGUIControlFactory.cpp
+index e31fd72847..d4936a31f5 100644
+--- a/xbmc/guilib/test/TestGUIControlFactory.cpp
++++ b/xbmc/guilib/test/TestGUIControlFactory.cpp
+@@ -927,10 +927,32 @@ TEST_P(TestGetTexture, GetTexture)
+   EXPECT_EQ(info.m_infill, GetParam().info.m_infill);
+   EXPECT_EQ(info.orientation, GetParam().info.orientation);
+   EXPECT_EQ(info.useLarge, GetParam().info.useLarge);
++  EXPECT_FALSE(info.m_subpixel);
+ }
+ 
+ INSTANTIATE_TEST_SUITE_P(TestGUIControlFactory, TestGetTexture, testing::ValuesIn(TextureTests));
+ 
++TEST(TestGUIControlFactory, GetTextureSubpixel)
++{
++  CGUITestComponent comp;
++  CXBMCTinyXML doc;
++  doc.Parse(R"(<root><test subpixel="true">foo.png</test></root>)"s);
++  CTextureInfo info;
++  EXPECT_TRUE(CGFTestable::GetTexture(doc.RootElement(), "test", info));
++  EXPECT_TRUE(info.m_subpixel);
++}
++
++TEST(TestGUIControlFactory, GetTextureSubpixelFalse)
++{
++  CGUITestComponent comp;
++  CXBMCTinyXML doc;
++  doc.Parse(R"(<root><test subpixel="false">foo.png</test></root>)"s);
++  CTextureInfo info;
++  info.m_subpixel = true;
++  EXPECT_TRUE(CGFTestable::GetTexture(doc.RootElement(), "test", info));
++  EXPECT_FALSE(info.m_subpixel);
++}
++
+ TEST_P(TestGetType, GetType)
+ {
+   CXBMCTinyXML doc;
+diff --git a/xbmc/guilib/test/TestGUITexture.cpp b/xbmc/guilib/test/TestGUITexture.cpp
+new file mode 100644
+index 0000000000..fc6edac2db
+--- /dev/null
++++ b/xbmc/guilib/test/TestGUITexture.cpp
+@@ -0,0 +1,25 @@
++/*
++ *  Copyright (C) 2026 Team Kodi
++ *  This file is part of Kodi - https://kodi.tv
++ *
++ *  SPDX-License-Identifier: GPL-2.0-or-later
++ *  See LICENSES/README.md for more information.
++ */
++
++#include "guilib/GUITexture.h"
++
++#include <gtest/gtest.h>
++
++TEST(TestGUITexture, SnapToPixelRounds)
++{
++  EXPECT_EQ(CGUITexture::SnapToPixel(10.4f, false), 10.0f);
++  EXPECT_EQ(CGUITexture::SnapToPixel(10.6f, false), 11.0f);
++  EXPECT_EQ(CGUITexture::SnapToPixel(-0.6f, false), -1.0f);
++}
++
++TEST(TestGUITexture, SnapToPixelKeepsSubpixel)
++{
++  EXPECT_EQ(CGUITexture::SnapToPixel(10.4f, true), 10.4f);
++  EXPECT_EQ(CGUITexture::SnapToPixel(10.6f, true), 10.6f);
++  EXPECT_EQ(CGUITexture::SnapToPixel(-0.6f, true), -0.6f);
++}
+-- 
+2.55.0
+
