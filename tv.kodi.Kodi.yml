@@ -764,6 +764,8 @@ modules:
         path: patches/kodi-gui-subpixel-textures.patch
       - type: patch
         path: patches/kodi-guiimage-usecache.patch
+      - type: patch
+        path: patches/kodi-ffmpegimage-exif-orientation.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
