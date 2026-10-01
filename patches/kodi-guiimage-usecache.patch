@@ -1,0 +1,184 @@
+From 0e1b93e66f4ed5c43242d0b2efeb6f339ae992b4 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Thu, 1 Oct 2026 15:39:49 +1000
+Subject: [PATCH] [guilib] Fix CGUIImage::SetFileName ignoring useCache
+
+Since 6a9c668439 ("GUILIB: Only fade between two textures") SetFileName
+only stages the new name and drops useCache, so the incoming texture
+always uses the texture cache. Python ControlImage.setImage(...,
+useCache=False) and the binary add-on image control therefore cache
+remote images anyway, e.g. full-size photos end up in Thumbnails as
+downscaled copies that are shown from then on.
+
+Stage useCache with the name and apply it to the incoming texture.
+
+---
+ xbmc/guilib/GUIImage.cpp          |   3 +
+ xbmc/guilib/GUIImage.h            |   1 +
+ xbmc/guilib/test/CMakeLists.txt   |   1 +
+ xbmc/guilib/test/TestGUIImage.cpp | 102 ++++++++++++++++++++++++++++++
+ 4 files changed, 107 insertions(+)
+ create mode 100644 xbmc/guilib/test/TestGUIImage.cpp
+
+diff --git a/xbmc/guilib/GUIImage.cpp b/xbmc/guilib/GUIImage.cpp
+index aa05ead551..94a44c25ae 100644
+--- a/xbmc/guilib/GUIImage.cpp
++++ b/xbmc/guilib/GUIImage.cpp
+@@ -198,12 +198,14 @@ void CGUIImage::ProcessState()
+     if (m_textureNext->GetFileName() == fileName && m_nameNext != fileName)
+       m_nameNext = fileName;
+ 
++    m_textureNext->SetUseCache(m_useCacheStaging);
+     m_isTransitioning = true;
+     m_hasNewStagingTexture = false;
+     return;
+   }
+ 
+   // replace the in-flight texture, so the latest request always wins
++  m_textureNext->SetUseCache(m_useCacheStaging);
+   m_textureNext->SetFileName(fileName);
+   m_nameNext = fileName;
+   m_isTransitioning = true;
+@@ -501,6 +503,7 @@ void CGUIImage::SetFileName(const std::string& strFileName, bool setConstant, co
+   if (setConstant)
+     m_info.SetLabel(strFileName, "", GetParentID());
+   m_nameStaging = strFileName;
++  m_useCacheStaging = useCache;
+   m_hasNewStagingTexture = true;
+ }
+ 
+diff --git a/xbmc/guilib/GUIImage.h b/xbmc/guilib/GUIImage.h
+index 3777d4645d..90c962dc95 100644
+--- a/xbmc/guilib/GUIImage.h
++++ b/xbmc/guilib/GUIImage.h
+@@ -121,6 +121,7 @@ protected:
+ 
+   bool m_isTransitioning{false};
+   bool m_hasNewStagingTexture{false};
++  bool m_useCacheStaging{true};
+ 
+   std::unique_ptr<CGUITexture> m_textureCurrent;
+   std::unique_ptr<CGUITexture> m_textureNext;
+diff --git a/xbmc/guilib/test/CMakeLists.txt b/xbmc/guilib/test/CMakeLists.txt
+index e46112239a..ebb993ab62 100644
+--- a/xbmc/guilib/test/CMakeLists.txt
++++ b/xbmc/guilib/test/CMakeLists.txt
+@@ -2,6 +2,7 @@ set(SOURCES TestGUIControlFactory.cpp
+             TestGUIControlGroup.cpp
+             TestGamesGUIInfo.cpp
+             TestGUIFixedListContainer.cpp
++            TestGUIImage.cpp
+             TestGUIPanelContainer.cpp
+             TestGUILabel.cpp
+             TestGUIListItemLayout.cpp
+diff --git a/xbmc/guilib/test/TestGUIImage.cpp b/xbmc/guilib/test/TestGUIImage.cpp
+new file mode 100644
+index 0000000000..f84a46dbac
+--- /dev/null
++++ b/xbmc/guilib/test/TestGUIImage.cpp
+@@ -0,0 +1,102 @@
++/*
++ *  Copyright (C) 2026 Team Kodi
++ *  This file is part of Kodi - https://kodi.tv
++ *
++ *  SPDX-License-Identifier: GPL-2.0-or-later
++ *  See LICENSES/README.md for more information.
++ */
++
++#include "guilib/GUIImage.h"
++#include "guilib/GUITexture.h"
++
++#include <gtest/gtest.h>
++
++namespace
++{
++
++class CTestGUITexture : public CGUITexture
++{
++public:
++  CTestGUITexture(float posX, float posY, float width, float height, const CTextureInfo& texture)
++    : CGUITexture(posX, posY, width, height, texture)
++  {
++  }
++  CGUITexture* Clone() const override { return new CTestGUITexture(*this); }
++  bool UsesCache() const { return m_use_cache; }
++
++protected:
++  void Begin(KODI::UTILS::COLOR::Color color) override {}
++  void Draw(float* x,
++            float* y,
++            float* z,
++            const CRect& texture,
++            const CRect& diffuse,
++            int orientation) override
++  {
++  }
++  void End() override {}
++};
++
++class CTestGUIImage : public CGUIImage
++{
++public:
++  using CGUIImage::CGUIImage;
++  using CGUIImage::ProcessState;
++
++  const CTestGUITexture& NextTexture() const
++  {
++    return static_cast<const CTestGUITexture&>(*m_textureNext);
++  }
++};
++
++class TestGUIImage : public ::testing::Test
++{
++protected:
++  void SetUp() override
++  {
++    CGUITexture::Register(
++        [](float posX, float posY, float width, float height,
++           const CTextureInfo& texture) -> CGUITexture*
++        { return new CTestGUITexture(posX, posY, width, height, texture); },
++        [](const CRect&, KODI::UTILS::COLOR::Color, CTexture*, const CRect*, float, bool) {});
++  }
++};
++
++} // namespace
++
++TEST_F(TestGUIImage, SetFileNameAppliesUseCache)
++{
++  CTestGUIImage image(0, 1, 0, 0, 100, 100, CTextureInfo());
++
++  image.SetFileName("http://localhost/photo.jpg", false, false);
++  image.ProcessState();
++
++  EXPECT_EQ(image.NextTexture().GetFileName(), "http://localhost/photo.jpg");
++  EXPECT_FALSE(image.NextTexture().UsesCache());
++}
++
++TEST_F(TestGUIImage, SetFileNameAppliesUseCacheToPendingTexture)
++{
++  CTestGUIImage image(0, 1, 0, 0, 100, 100, CTextureInfo());
++
++  image.SetFileName("http://localhost/photo.jpg");
++  image.ProcessState();
++  image.SetFileName("http://localhost/photo.jpg", false, false);
++  image.ProcessState();
++
++  EXPECT_EQ(image.NextTexture().GetFileName(), "http://localhost/photo.jpg");
++  EXPECT_FALSE(image.NextTexture().UsesCache());
++}
++
++TEST_F(TestGUIImage, SetFileNameUsesCacheByDefault)
++{
++  CTestGUIImage image(0, 1, 0, 0, 100, 100, CTextureInfo());
++
++  image.SetFileName("http://localhost/photo.jpg", false, false);
++  image.ProcessState();
++  image.SetFileName("http://localhost/other.jpg");
++  image.ProcessState();
++
++  EXPECT_EQ(image.NextTexture().GetFileName(), "http://localhost/other.jpg");
++  EXPECT_TRUE(image.NextTexture().UsesCache());
++}
+-- 
+2.55.0
+
