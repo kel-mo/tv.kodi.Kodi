@@ -767,6 +767,8 @@ modules:
         path: patches/kodi-guiimage-usecache.patch
       - type: patch
         path: patches/kodi-ffmpegimage-exif-orientation.patch
+      - type: patch
+        path: patches/kodi-gui-mipmap-textures.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
