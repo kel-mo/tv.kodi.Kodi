@@ -784,6 +784,8 @@ modules:
         path: patches/kodi-gui-mipmap-textures.patch
       - type: patch
         path: patches/kodi-videoplayer-same-stream.patch
+      - type: patch
+        path: patches/kodi-python-infolabel-release-gil.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
