@@ -1,4 +1,4 @@
-From 429f36982a4e64efa41b18846f6e2874e859b8ae Mon Sep 17 00:00:00 2001
+From a334270010571d6675c137379d3a0070ed904feb Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Fri, 2 Oct 2026 11:05:52 +1000
 Subject: [PATCH] [guilib] Allow textures to be mipmapped
@@ -295,13 +295,13 @@ index 3fdddfb921..07d3783b77 100644
    return true;
  }
 diff --git a/xbmc/guilib/GUIImage.dox b/xbmc/guilib/GUIImage.dox
-index 568d76c465..b8a492139b 100644
+index 1c80fa8326..f82917f025 100644
 --- a/xbmc/guilib/GUIImage.dox
 +++ b/xbmc/guilib/GUIImage.dox
 @@ -88,11 +88,13 @@ For the tags "texture" and "bordertexture", the following attributes are availab
  | diffuse       | Specifies a diffuse texture which is "modulated" or multiplied with the texture in order to give specific effects, such as making the image gain transparency, or tint it in various ways. As it's applied per-pixel many effects are possible, the most popular being by a transparent reflection which slowly gets more and more opaque. This is achieved using a WHITE image where the transparency increases as you move down the texture.
  | colordiffuse  | This specifies the color to be used for the texture basis. It's is specified in hexadecimal notation using the AARRGGBB format. If you define <b>`<texture colordiffuse="FFFFAAFF">texture.png</texture>`</b> (magenta), the image will be given a magenta tint when rendered. You can also specify this as a name from the colour theme, or you can also use $VAR and $INFO for dynamic values.
- | subpixel      | When set to "true", the texture keeps its fractional screen position instead of being snapped to whole pixels, so slow zoom and slide animations move smoothly rather than in one pixel steps. Best suited to photos and artwork that move; edges and 1 pixel lines are softer when the position is fractional, and labels drawn over the texture still snap to whole pixels. Defaults to "false".
+ | subpixel      | When set to "true", the texture keeps its fractional screen position while it moves instead of being snapped to whole pixels, so slow zoom and slide animations move smoothly rather than in one pixel steps. Shortly after it stops moving it is snapped again. Best suited to photos and artwork that move; edges and 1 pixel lines are softer during motion, and labels drawn over the texture still snap to whole pixels. Defaults to "false".
 +| mipmap        | When set to "true", smaller copies of the texture (mipmaps) are generated when it loads, so it stays smooth when drawn smaller than its size, e.g. a large photo during a slow zoom animation. Without them, fine detail shimmers and shows moire patterns while the scale changes. Only applies to images loaded via the large texture manager, and uses a third more video memory. For a zoom animation, make the control larger than it is shown at and zoom it down. Defaults to "false".
  
  @skinning_v20 <b>infill</b> New texture attribute added.
@@ -313,10 +313,10 @@ index 568d76c465..b8a492139b 100644
  --------------------------------------------------------------------------------
  \section Image_Control_sect4 See also
 diff --git a/xbmc/guilib/GUITexture.cpp b/xbmc/guilib/GUITexture.cpp
-index ec72cc34a0..7b2149b1b3 100644
+index 805823eeb8..f38bc603b7 100644
 --- a/xbmc/guilib/GUITexture.cpp
 +++ b/xbmc/guilib/GUITexture.cpp
-@@ -456,7 +456,7 @@ bool CGUITexture::AllocResources()
+@@ -486,7 +486,7 @@ bool CGUITexture::AllocResources()
        }
        if (CServiceBroker::GetGUI()->GetLargeTextureManager().GetImage(
                m_info.filename, texture, m_requestWidth, m_requestHeight, m_aspect.ratio,
@@ -325,7 +325,7 @@ index ec72cc34a0..7b2149b1b3 100644
        {
          m_isAllocated = LARGE;
  
-@@ -611,7 +611,7 @@ void CGUITexture::FreeResources(bool immediately /* = false */)
+@@ -641,7 +641,7 @@ void CGUITexture::FreeResources(bool immediately /* = false */)
    if (m_isAllocated == LARGE || m_isAllocated == LARGE_FAILED)
    {
      CServiceBroker::GetGUI()->GetLargeTextureManager().ReleaseImage(
@@ -335,13 +335,13 @@ index ec72cc34a0..7b2149b1b3 100644
      m_requestWidth = REQUEST_SIZE_UNSET;
      m_requestHeight = REQUEST_SIZE_UNSET;
 diff --git a/xbmc/guilib/GUITexture.h b/xbmc/guilib/GUITexture.h
-index a0224e9595..91a84db779 100644
+index c9ad42cb75..3cadc5080b 100644
 --- a/xbmc/guilib/GUITexture.h
 +++ b/xbmc/guilib/GUITexture.h
 @@ -46,6 +46,7 @@ public:
    bool m_infill{
        true}; // if false, the main body of a texture is not drawn. useful for borders with no inner filling
-   bool m_subpixel{false}; // if true, corners are not snapped to whole pixels, for smooth motion
+   bool m_subpixel{false}; // if true, corners are not snapped to whole pixels while moving
 +  bool m_mipmap{false}; // if true, mipmaps are generated, for smooth downscaling
    int        orientation;     // orientation of the texture (0 - 7 == EXIForientation - 1)
    std::string diffuse;         // diffuse overlay texture
