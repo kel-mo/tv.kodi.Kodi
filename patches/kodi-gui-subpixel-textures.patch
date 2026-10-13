@@ -1,7 +1,10 @@
-From 0118f9666e40240829d848680df328bfe6d91b42 Mon Sep 17 00:00:00 2001
+From 1c376f8a087f84ccc46e33779e3e0e56880732f0 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Thu, 1 Oct 2026 15:36:57 +1000
 Subject: [PATCH] [guilib] Allow textures to keep subpixel positions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
 CGUITexture rounds every corner of a texture to a whole pixel. That keeps
 static artwork crisp, but slow zoom and slide animations then move in
@@ -11,17 +14,53 @@ Ken Burns pan in a picture add-on.
 Add an opt-in subpixel="true" texture attribute that skips the rounding
 of the screen x and y coordinates. Depth stays rounded, and textures
 without the attribute render exactly as before.
+
+GLES rounds the corners in its vertex shader since the quads moved to
+the GPU, so m_snap is set to 2 for a subpixel texture to skip the
+rounding there as well.
+
+Assisted-By: Claude
+Co-authored-by: Clément Péron <peron.clem@gmail.com>
 ---
+ system/shaders/GLES/2.0/gles_shader.vert   | 14 ++++++++----
  xbmc/guilib/GUIControlFactory.cpp          |  2 ++
  xbmc/guilib/GUIImage.dox                   |  2 ++
  xbmc/guilib/GUITexture.cpp                 | 20 ++++++++++++-----
  xbmc/guilib/GUITexture.h                   |  8 +++++++
+ xbmc/guilib/GUITextureGLES.cpp             |  2 +-
  xbmc/guilib/test/CMakeLists.txt            |  1 +
  xbmc/guilib/test/TestGUIControlFactory.cpp | 22 +++++++++++++++++++
  xbmc/guilib/test/TestGUITexture.cpp        | 25 ++++++++++++++++++++++
- 7 files changed, 75 insertions(+), 5 deletions(-)
+ 9 files changed, 86 insertions(+), 10 deletions(-)
  create mode 100644 xbmc/guilib/test/TestGUITexture.cpp
 
+diff --git a/system/shaders/GLES/2.0/gles_shader.vert b/system/shaders/GLES/2.0/gles_shader.vert
+index e5119fd033..9a7c2213bd 100644
+--- a/system/shaders/GLES/2.0/gles_shader.vert
++++ b/system/shaders/GLES/2.0/gles_shader.vert
+@@ -57,12 +57,18 @@ void main ()
+     cord0 = vec4(m_attrcord0.xy + (m_texSwap.x > 0.0 ? t.yx : t) * (m_attrcord0.zw - m_attrcord0.xy), 0.0, 1.0);
+     cord1 = vec4(m_attrcord1.xy + (m_texSwap.y > 0.0 ? t.yx : t) * (m_attrcord1.zw - m_attrcord1.xy), 0.0, 1.0);
+ 
+-    // Round to whole pixels. A bottom corner is pushed one pixel away from the opposite corner if
+-    // both round to the same row or column, so that thin quads never vanish.
++    // Round to whole pixels, unless m_snap is 2 for a texture that keeps subpixel positions (then
++    // only the depth is rounded). A bottom corner is pushed one pixel away from the opposite corner
++    // if both land on the same row or column, so that thin quads never vanish.
+     float push = (p.y > q.y && all(notEqual(pc, qc))) ? 1.0 : 0.0;
+     pos = m_gui * vec4(pc, 0.0, 1.0);
+-    pos.xyz = floor(pos.xyz + 0.5);
+-    vec2 opposite = floor((m_gui * vec4(qc, 0.0, 1.0)).xy + 0.5);
++    vec2 opposite = (m_gui * vec4(qc, 0.0, 1.0)).xy;
++    if (m_snap < 1.5)
++    {
++      pos.xy = floor(pos.xy + 0.5);
++      opposite = floor(opposite + 0.5);
++    }
++    pos.z = floor(pos.z + 0.5);
+     pos.xy += vec2(equal(pos.xy, opposite)) * push;
+   }
+   else
 diff --git a/xbmc/guilib/GUIControlFactory.cpp b/xbmc/guilib/GUIControlFactory.cpp
 index 0ae1c69ff7..3fdddfb921 100644
 --- a/xbmc/guilib/GUIControlFactory.cpp
@@ -53,11 +92,11 @@ index b4c80d7a0d..568d76c465 100644
  --------------------------------------------------------------------------------
  \section Image_Control_sect4 See also
 diff --git a/xbmc/guilib/GUITexture.cpp b/xbmc/guilib/GUITexture.cpp
-index c4e1dd6c8a..25e526da15 100644
+index 9bb19b115d..ec72cc34a0 100644
 --- a/xbmc/guilib/GUITexture.cpp
 +++ b/xbmc/guilib/GUITexture.cpp
-@@ -290,6 +290,13 @@ void CGUITexture::Render(int32_t depthOffset, int32_t overrideDepth)
-     CServiceBroker::GetWinSystem()->GetGfxContext().RestoreClipRegion();
+@@ -353,6 +353,13 @@ void CGUITexture::UpdateSegments()
+   }
  }
  
 +float CGUITexture::SnapToPixel(float coord, bool subpixel)
@@ -67,10 +106,10 @@ index c4e1dd6c8a..25e526da15 100644
 +  return static_cast<float>(MathUtils::round_int(static_cast<double>(coord)));
 +}
 +
- void CGUITexture::Render(float left,
-                          float top,
-                          float right,
-@@ -324,20 +331,23 @@ void CGUITexture::Render(float left,
+ void CGUITexture::Render(const Segment& segment)
+ {
+   CRect diffuse(segment.texture);
+@@ -368,20 +375,23 @@ void CGUITexture::Render(const Segment& segment)
  
    float x[4], y[4], z[4];
  
@@ -100,10 +139,10 @@ index c4e1dd6c8a..25e526da15 100644
    if (y[2] == y[0]) y[2] += 1.0f;
    if (x[2] == x[0]) x[2] += 1.0f;
 diff --git a/xbmc/guilib/GUITexture.h b/xbmc/guilib/GUITexture.h
-index 43c18ee5bd..46a633cb0c 100644
+index 1f2ba002f6..a0224e9595 100644
 --- a/xbmc/guilib/GUITexture.h
 +++ b/xbmc/guilib/GUITexture.h
-@@ -44,6 +44,7 @@ public:
+@@ -45,6 +45,7 @@ public:
    CRect      border;          // scaled  - unneeded if we get rid of scale on load
    bool m_infill{
        true}; // if false, the main body of a texture is not drawn. useful for borders with no inner filling
@@ -111,7 +150,7 @@ index 43c18ee5bd..46a633cb0c 100644
    int        orientation;     // orientation of the texture (0 - 7 == EXIForientation - 1)
    std::string diffuse;         // diffuse overlay texture
    KODI::GUILIB::GUIINFO::CGUIInfoColor diffuseColor; // diffuse color
-@@ -73,6 +74,13 @@ public:
+@@ -75,6 +76,13 @@ public:
        float posX, float posY, float width, float height, const CTextureInfo& texture);
    virtual CGUITexture* Clone() const = 0;
  
@@ -125,11 +164,24 @@ index 43c18ee5bd..46a633cb0c 100644
    static void DrawQuad(const CRect& coords,
                         KODI::UTILS::COLOR::Color color,
                         CTexture* texture = nullptr,
+diff --git a/xbmc/guilib/GUITextureGLES.cpp b/xbmc/guilib/GUITextureGLES.cpp
+index 72fb15f557..84de720677 100644
+--- a/xbmc/guilib/GUITextureGLES.cpp
++++ b/xbmc/guilib/GUITextureGLES.cpp
+@@ -256,7 +256,7 @@ bool CGUITextureGLES::DrawQuads(const std::vector<Quad>& quads,
+   glUniform2f(m_renderSystem->GUIShaderGetTexSwap(), swap0, swap1);
+   glUniformMatrix4fv(m_renderSystem->GUIShaderGetGUIMatrix(), 1, GL_FALSE,
+                      CMatrixGL(context.GetGUIMatrix()));
+-  glUniform1f(m_renderSystem->GUIShaderGetSnap(), 1.0f);
++  glUniform1f(m_renderSystem->GUIShaderGetSnap(), m_info.m_subpixel ? 2.0f : 1.0f);
+ 
+   m_quadBuffer.Bind();
+   const auto attribute = [](GLint location, std::size_t member)
 diff --git a/xbmc/guilib/test/CMakeLists.txt b/xbmc/guilib/test/CMakeLists.txt
-index e46112239a..d26bfe7816 100644
+index bfb89ebd03..8693942eee 100644
 --- a/xbmc/guilib/test/CMakeLists.txt
 +++ b/xbmc/guilib/test/CMakeLists.txt
-@@ -6,6 +6,7 @@ set(SOURCES TestGUIControlFactory.cpp
+@@ -8,6 +8,7 @@ set(SOURCES TestGUIControlFactory.cpp
              TestGUILabel.cpp
              TestGUIListItemLayout.cpp
              TestGUITextLayout.cpp
@@ -138,7 +190,7 @@ index e46112239a..d26bfe7816 100644
              TestSkinMapManager.cpp
  )
 diff --git a/xbmc/guilib/test/TestGUIControlFactory.cpp b/xbmc/guilib/test/TestGUIControlFactory.cpp
-index e31fd72847..d4936a31f5 100644
+index 09d3e565f8..ae55ce12c7 100644
 --- a/xbmc/guilib/test/TestGUIControlFactory.cpp
 +++ b/xbmc/guilib/test/TestGUIControlFactory.cpp
 @@ -927,10 +927,32 @@ TEST_P(TestGetTexture, GetTexture)

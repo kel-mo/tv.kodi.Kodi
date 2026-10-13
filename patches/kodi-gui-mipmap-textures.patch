@@ -1,6 +1,6 @@
-From 9c6fa714ac951ce31b65cc51b5890ce3aa4fe73b Mon Sep 17 00:00:00 2001
+From 429f36982a4e64efa41b18846f6e2874e859b8ae Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
-Date: Fri, 2 Oct 2026 08:01:46 +1000
+Date: Fri, 2 Oct 2026 11:05:52 +1000
 Subject: [PATCH] [guilib] Allow textures to be mipmapped
 
 Large textures are drawn with plain bilinear filtering. When a photo is
@@ -19,20 +19,20 @@ before.
 
 Assisted-By: Claude
 ---
- xbmc/GUILargeTextureManager.cpp            | 36 ++++++++++++++++------
- xbmc/GUILargeTextureManager.h              | 12 +++++++-
- xbmc/guilib/GUIControlFactory.cpp          |  2 ++
- xbmc/guilib/GUIImage.dox                   |  2 ++
- xbmc/guilib/GUITexture.cpp                 |  4 +--
+ xbmc/GUILargeTextureManager.cpp            | 43 ++++++++++++++++------
+ xbmc/GUILargeTextureManager.h              | 12 +++++-
+ xbmc/guilib/GUIControlFactory.cpp          |  2 +
+ xbmc/guilib/GUIImage.dox                   |  2 +
+ xbmc/guilib/GUITexture.cpp                 |  4 +-
  xbmc/guilib/GUITexture.h                   |  1 +
- xbmc/guilib/test/TestGUIControlFactory.cpp | 22 +++++++++++++
- 7 files changed, 67 insertions(+), 12 deletions(-)
+ xbmc/guilib/test/TestGUIControlFactory.cpp | 22 +++++++++++
+ 7 files changed, 71 insertions(+), 15 deletions(-)
 
 diff --git a/xbmc/GUILargeTextureManager.cpp b/xbmc/GUILargeTextureManager.cpp
-index 529b2d7ab3..aab8920c73 100644
+index 0960d122dd..3371de0968 100644
 --- a/xbmc/GUILargeTextureManager.cpp
 +++ b/xbmc/GUILargeTextureManager.cpp
-@@ -30,12 +30,14 @@ CImageLoader::CImageLoader(const std::string& path,
+@@ -71,12 +71,14 @@ CImageLoader::CImageLoader(const std::string& path,
                             unsigned int targetWidth,
                             unsigned int targetHeight,
                             CAspectRatio::AspectRatio aspectRatio,
@@ -47,8 +47,8 @@ index 529b2d7ab3..aab8920c73 100644
 +    m_mipmap(mipmap)
  {
    m_use_cache = useCache;
- }
-@@ -73,6 +75,9 @@ bool CImageLoader::DoWork()
+ 
+@@ -121,6 +123,9 @@ bool CImageLoader::DoWork()
        if (needsChecking)
          CServiceBroker::GetTextureCache()->BackgroundCacheImage(texturePath);
  
@@ -58,7 +58,7 @@ index 529b2d7ab3..aab8920c73 100644
        if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiAsyncTextureUpload)
          m_texture->LoadToGPUAsync();
  
-@@ -93,6 +98,9 @@ bool CImageLoader::DoWork()
+@@ -141,6 +146,9 @@ bool CImageLoader::DoWork()
    if (!m_texture)
      return false;
  
@@ -68,7 +68,7 @@ index 529b2d7ab3..aab8920c73 100644
    if (CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_guiAsyncTextureUpload)
      m_texture->LoadToGPUAsync();
  
-@@ -102,11 +110,13 @@ bool CImageLoader::DoWork()
+@@ -150,11 +158,13 @@ bool CImageLoader::DoWork()
  CGUILargeTextureManager::CLargeTexture::CLargeTexture(const std::string& path,
                                                        unsigned int targetWidth,
                                                        unsigned int targetHeight,
@@ -84,7 +84,7 @@ index 529b2d7ab3..aab8920c73 100644
  {
    m_refCount = 1;
    m_timeToDelete = 0;
-@@ -185,6 +195,7 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
+@@ -233,6 +243,7 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
                                         unsigned int width,
                                         unsigned int height,
                                         CAspectRatio::AspectRatio aspectRatio,
@@ -92,7 +92,7 @@ index 529b2d7ab3..aab8920c73 100644
                                         bool firstRequest,
                                         const bool useCache)
  {
-@@ -193,7 +204,8 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
+@@ -243,7 +254,8 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
    {
      CLargeTexture *image = *it;
      if (image->GetPath() == path && image->GetTargetWidth() == width &&
@@ -102,24 +102,50 @@ index 529b2d7ab3..aab8920c73 100644
      {
        if (firstRequest)
          image->AddRef();
-@@ -203,7 +215,7 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
+@@ -262,7 +274,8 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
+                                     return image->GetPath() == path &&
+                                            image->GetTargetWidth() == width &&
+                                            image->GetTargetHeight() == height &&
+-                                           image->GetAspectRatio() == aspectRatio;
++                                           image->GetAspectRatio() == aspectRatio &&
++                                           image->GetMipmap() == mipmap;
+                                   });
+   if (!queued && aspectRatio != CAspectRatio::CENTER)
+   {
+@@ -270,13 +283,14 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
+     for (const CLargeTexture* image : m_allocated)
+     {
+       if (image->GetPath() == path && image->GetAspectRatio() != CAspectRatio::CENTER &&
++          image->GetMipmap() == mipmap &&
+           MatchesRequest(image->GetTexture(), width, height, aspectRatio) &&
+           (!best || image->GetTexture().m_width < best->GetTexture().m_width))
+         best = image;
+     }
+     if (best)
+     {
+-      auto* image = new CLargeTexture(path, width, height, aspectRatio);
++      auto* image = new CLargeTexture(path, width, height, aspectRatio, mipmap);
+       image->ShareTexture(best->GetTexture());
+       m_allocated.push_back(image);
+       texture = image->GetTexture();
+@@ -284,7 +298,7 @@ bool CGUILargeTextureManager::GetImage(const std::string& path,
+     }
    }
  
-   if (firstRequest)
--    QueueImage(path, width, height, aspectRatio, useCache);
-+    QueueImage(path, width, height, aspectRatio, mipmap, useCache);
- 
+-  QueueImage(path, width, height, aspectRatio, useCache);
++  QueueImage(path, width, height, aspectRatio, mipmap, useCache);
    return true;
  }
-@@ -212,6 +224,7 @@ void CGUILargeTextureManager::ReleaseImage(const std::string& path,
+ 
+@@ -315,6 +329,7 @@ void CGUILargeTextureManager::ReleaseImage(const std::string& path,
                                             unsigned int width,
                                             unsigned int height,
                                             CAspectRatio::AspectRatio aspectRatio,
 +                                           bool mipmap,
                                             bool immediately)
  {
-   std::unique_lock lock(m_listSection);
-@@ -219,7 +232,8 @@ void CGUILargeTextureManager::ReleaseImage(const std::string& path,
+   NormalizeRequest(width, height, aspectRatio);
+@@ -324,7 +339,8 @@ void CGUILargeTextureManager::ReleaseImage(const std::string& path,
    {
      CLargeTexture *image = *it;
      if (image->GetPath() == path && image->GetTargetWidth() == width &&
@@ -129,15 +155,16 @@ index 529b2d7ab3..aab8920c73 100644
      {
        if (image->DecrRef(immediately) && immediately)
          m_allocated.erase(it);
-@@ -232,6 +246,7 @@ void CGUILargeTextureManager::ReleaseImage(const std::string& path,
+@@ -337,7 +353,7 @@ void CGUILargeTextureManager::ReleaseImage(const std::string& path,
      CLargeTexture *image = it->second;
      if (image->GetPath() == path && image->GetTargetWidth() == width &&
          image->GetTargetHeight() == height && image->GetAspectRatio() == aspectRatio &&
-+        image->GetMipmap() == mipmap &&
-         image->DecrRef(true))
+-        image->DecrRef(true))
++        image->GetMipmap() == mipmap && image->DecrRef(true))
      {
        // cancel this job
-@@ -247,6 +262,7 @@ void CGUILargeTextureManager::QueueImage(const std::string& path,
+       CServiceBroker::GetJobManager()->CancelJob(id);
+@@ -352,6 +368,7 @@ void CGUILargeTextureManager::QueueImage(const std::string& path,
                                           unsigned int width,
                                           unsigned int height,
                                           CAspectRatio::AspectRatio aspectRatio,
@@ -145,7 +172,7 @@ index 529b2d7ab3..aab8920c73 100644
                                           bool useCache)
  {
    if (path.empty())
-@@ -257,7 +273,8 @@ void CGUILargeTextureManager::QueueImage(const std::string& path,
+@@ -362,7 +379,8 @@ void CGUILargeTextureManager::QueueImage(const std::string& path,
    {
      CLargeTexture *image = it->second;
      if (image->GetPath() == path && image->GetTargetWidth() == width &&
@@ -155,7 +182,7 @@ index 529b2d7ab3..aab8920c73 100644
      {
        image->AddRef();
        return; // already queued
-@@ -265,9 +282,10 @@ void CGUILargeTextureManager::QueueImage(const std::string& path,
+@@ -370,9 +388,10 @@ void CGUILargeTextureManager::QueueImage(const std::string& path,
    }
  
    // queue the item
@@ -169,7 +196,7 @@ index 529b2d7ab3..aab8920c73 100644
  }
  
 diff --git a/xbmc/GUILargeTextureManager.h b/xbmc/GUILargeTextureManager.h
-index 1b65875a5b..6a5cd590f4 100644
+index 7279289601..f1236482e1 100644
 --- a/xbmc/GUILargeTextureManager.h
 +++ b/xbmc/GUILargeTextureManager.h
 @@ -36,6 +36,7 @@ public:
@@ -188,15 +215,15 @@ index 1b65875a5b..6a5cd590f4 100644
  };
  
  /*!
-@@ -89,6 +91,7 @@ public:
+@@ -90,6 +92,7 @@ public:
     \param texture texture object to hold the resulting texture
-    \param width target width of the image. 0 means original width.
-    \param height target height of the image. 0 means original height.
+    \param width target width of the image.
+    \param height target height of the image.
 +   \param mipmap whether to generate mipmaps, for smooth downscaling.
     \param firstRequest true if this is the first time we are requesting this texture
     \param useCache whether to load from image cache.
     \return true if the image exists, else false.
-@@ -99,6 +102,7 @@ public:
+@@ -100,6 +103,7 @@ public:
                  unsigned int width,
                  unsigned int height,
                  CAspectRatio::AspectRatio aspectRatio,
@@ -204,7 +231,7 @@ index 1b65875a5b..6a5cd590f4 100644
                  bool firstRequest,
                  bool useCache = true);
  
-@@ -112,6 +116,7 @@ public:
+@@ -113,6 +117,7 @@ public:
     \param path path of the image to release.
     \param width target width of the image to release.
     \param height target height of the image to release.
@@ -212,7 +239,7 @@ index 1b65875a5b..6a5cd590f4 100644
     \param immediately if set true the image is immediately unloaded once its reference count reaches zero
                        rather than being unloaded after a delay.
     */
-@@ -119,6 +124,7 @@ public:
+@@ -120,6 +125,7 @@ public:
                      unsigned int width,
                      unsigned int height,
                      CAspectRatio::AspectRatio aspectRatio,
@@ -220,7 +247,7 @@ index 1b65875a5b..6a5cd590f4 100644
                      bool immediately = false);
  
    /*!
-@@ -139,7 +145,8 @@ private:
+@@ -151,7 +157,8 @@ private:
      explicit CLargeTexture(const std::string& path,
                             unsigned int targetWidth,
                             unsigned int targetHeight,
@@ -230,7 +257,7 @@ index 1b65875a5b..6a5cd590f4 100644
      virtual ~CLargeTexture();
  
      void AddRef();
-@@ -152,6 +159,7 @@ private:
+@@ -165,6 +172,7 @@ private:
      unsigned int GetTargetWidth() const { return m_targetWidth; }
      unsigned int GetTargetHeight() const { return m_targetHeight; }
      CAspectRatio::AspectRatio GetAspectRatio() const { return m_aspectRatio; }
@@ -238,7 +265,7 @@ index 1b65875a5b..6a5cd590f4 100644
  
    private:
      static const unsigned int TIME_TO_DELETE = 2000;
-@@ -162,6 +170,7 @@ private:
+@@ -175,6 +183,7 @@ private:
      unsigned int m_targetWidth;
      unsigned int m_targetHeight;
      CAspectRatio::AspectRatio m_aspectRatio;
@@ -246,7 +273,7 @@ index 1b65875a5b..6a5cd590f4 100644
      unsigned int m_timeToDelete;
    };
  
-@@ -169,6 +178,7 @@ private:
+@@ -182,6 +191,7 @@ private:
                    unsigned int width,
                    unsigned int height,
                    CAspectRatio::AspectRatio aspectRatio,
@@ -268,15 +295,14 @@ index 3fdddfb921..07d3783b77 100644
    return true;
  }
 diff --git a/xbmc/guilib/GUIImage.dox b/xbmc/guilib/GUIImage.dox
-index 568d76c465..be6105760e 100644
+index 568d76c465..b8a492139b 100644
 --- a/xbmc/guilib/GUIImage.dox
 +++ b/xbmc/guilib/GUIImage.dox
-@@ -87,12 +87,14 @@ For the tags "texture" and "bordertexture", the following attributes are availab
- | background    | Used on the <b>`<imagepath>`</b> tag. When set to "true", this forces the image to be loaded via the large texture manager (except for textures located in Textures.xbt).
+@@ -88,11 +88,13 @@ For the tags "texture" and "bordertexture", the following attributes are availab
  | diffuse       | Specifies a diffuse texture which is "modulated" or multiplied with the texture in order to give specific effects, such as making the image gain transparency, or tint it in various ways. As it's applied per-pixel many effects are possible, the most popular being by a transparent reflection which slowly gets more and more opaque. This is achieved using a WHITE image where the transparency increases as you move down the texture.
  | colordiffuse  | This specifies the color to be used for the texture basis. It's is specified in hexadecimal notation using the AARRGGBB format. If you define <b>`<texture colordiffuse="FFFFAAFF">texture.png</texture>`</b> (magenta), the image will be given a magenta tint when rendered. You can also specify this as a name from the colour theme, or you can also use $VAR and $INFO for dynamic values.
-+| mipmap        | When set to "true", smaller copies of the texture (mipmaps) are generated when it loads, so it stays smooth when drawn smaller than its size, e.g. a large photo during a slow zoom animation. Without them, fine detail shimmers and shows moire patterns while the scale changes. Only applies to images loaded via the large texture manager, and uses a third more video memory. Defaults to "false".
  | subpixel      | When set to "true", the texture keeps its fractional screen position instead of being snapped to whole pixels, so slow zoom and slide animations move smoothly rather than in one pixel steps. Best suited to photos and artwork that move; edges and 1 pixel lines are softer when the position is fractional, and labels drawn over the texture still snap to whole pixels. Defaults to "false".
++| mipmap        | When set to "true", smaller copies of the texture (mipmaps) are generated when it loads, so it stays smooth when drawn smaller than its size, e.g. a large photo during a slow zoom animation. Without them, fine detail shimmers and shows moire patterns while the scale changes. Only applies to images loaded via the large texture manager, and uses a third more video memory. For a zoom animation, make the control larger than it is shown at and zoom it down. Defaults to "false".
  
  @skinning_v20 <b>infill</b> New texture attribute added.
  @skinning_v22 <b>imagefilter</b> New tag added.
@@ -287,10 +313,10 @@ index 568d76c465..be6105760e 100644
  --------------------------------------------------------------------------------
  \section Image_Control_sect4 See also
 diff --git a/xbmc/guilib/GUITexture.cpp b/xbmc/guilib/GUITexture.cpp
-index 25e526da15..c9f28af5ba 100644
+index ec72cc34a0..7b2149b1b3 100644
 --- a/xbmc/guilib/GUITexture.cpp
 +++ b/xbmc/guilib/GUITexture.cpp
-@@ -395,7 +395,7 @@ bool CGUITexture::AllocResources()
+@@ -456,7 +456,7 @@ bool CGUITexture::AllocResources()
        }
        if (CServiceBroker::GetGUI()->GetLargeTextureManager().GetImage(
                m_info.filename, texture, m_requestWidth, m_requestHeight, m_aspect.ratio,
@@ -299,7 +325,7 @@ index 25e526da15..c9f28af5ba 100644
        {
          m_isAllocated = LARGE;
  
-@@ -543,7 +543,7 @@ void CGUITexture::FreeResources(bool immediately /* = false */)
+@@ -611,7 +611,7 @@ void CGUITexture::FreeResources(bool immediately /* = false */)
    if (m_isAllocated == LARGE || m_isAllocated == LARGE_FAILED)
    {
      CServiceBroker::GetGUI()->GetLargeTextureManager().ReleaseImage(
@@ -309,10 +335,10 @@ index 25e526da15..c9f28af5ba 100644
      m_requestWidth = REQUEST_SIZE_UNSET;
      m_requestHeight = REQUEST_SIZE_UNSET;
 diff --git a/xbmc/guilib/GUITexture.h b/xbmc/guilib/GUITexture.h
-index 46a633cb0c..2b4e087c23 100644
+index a0224e9595..91a84db779 100644
 --- a/xbmc/guilib/GUITexture.h
 +++ b/xbmc/guilib/GUITexture.h
-@@ -45,6 +45,7 @@ public:
+@@ -46,6 +46,7 @@ public:
    bool m_infill{
        true}; // if false, the main body of a texture is not drawn. useful for borders with no inner filling
    bool m_subpixel{false}; // if true, corners are not snapped to whole pixels, for smooth motion
@@ -321,7 +347,7 @@ index 46a633cb0c..2b4e087c23 100644
    std::string diffuse;         // diffuse overlay texture
    KODI::GUILIB::GUIINFO::CGUIInfoColor diffuseColor; // diffuse color
 diff --git a/xbmc/guilib/test/TestGUIControlFactory.cpp b/xbmc/guilib/test/TestGUIControlFactory.cpp
-index d4936a31f5..6c96d88bbb 100644
+index ae55ce12c7..205bc8eb7c 100644
 --- a/xbmc/guilib/test/TestGUIControlFactory.cpp
 +++ b/xbmc/guilib/test/TestGUIControlFactory.cpp
 @@ -928,6 +928,7 @@ TEST_P(TestGetTexture, GetTexture)

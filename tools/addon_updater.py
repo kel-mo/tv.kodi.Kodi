@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from github import Auth, Github
 
 addon_repo_base = "https://github.com/xbmc/repo-binary-addons"
-addon_repo_branch = "Piers"
+addon_repo_branch = "master"
 addon_repo_dir = "binary_addons_repo_tmp"
 addon_repo_remote = "binary_addons_repo"
 

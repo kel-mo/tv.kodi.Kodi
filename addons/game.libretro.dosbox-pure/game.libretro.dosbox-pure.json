@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.dosbox-pure",
-            "commit": "0274277d085bb1a7f66589c9533afe6cb3a1fd87"
+            "commit": "4b5575254d191f63d85a582e65267037daef71ba"
         },
         {
             "type": "file",
