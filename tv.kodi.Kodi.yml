@@ -790,6 +790,8 @@ modules:
         path: patches/kodi-quit-framemove-guard.patch
       - type: patch
         path: patches/kodi-videoplayer-revert-empty-packet-sleep.patch
+      - type: patch
+        path: patches/kodi-videoplayer-empty-packet-backoff.patch
       - type: file
         path: addon-list.txt
         dest: build/download/

@@ -1,0 +1,101 @@
+From eff2d08ad851ac062aeca76f556ad9ad574cd525 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Fri, 16 Oct 2026 06:24:40 +1000
+Subject: [PATCH] [VideoPlayer] Back off from a demuxer that keeps returning
+ nothing
+
+A demuxer with no data yet returns an empty packet, and the player goes
+straight back for another. inputstream.adaptive does this for every
+sample while its next read is in flight, which normally takes a
+fraction of a millisecond. While a download stalls, or trickles in below
+the stream's bitrate, the loop keeps a core at 100% for as long as that
+lasts.
+
+Once a run of empty packets has lasted more than 1 ms, sleep for about
+as long as it has lasted beyond that, between 1 and 10 ms. A read that
+finishes within 1 ms costs nothing, and a slower one is delayed by at
+most its own length, so there is no fixed cap on packets per second.
+Any other packet ends the run, and so does idling on full queues. A
+seek or flush needs no reset of its own, because its first packet ends
+the run. Empty packets that stand in for input the demuxer dropped
+count too, but they arrive at the input rate and are still read at
+least a hundred times a second, so nothing backs up.
+---
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp | 30 ++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+index b956ba92c6..a49e28e4d5 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+@@ -91,6 +91,11 @@ using namespace std::chrono_literals;
+ 
+ namespace
+ {
++// longer than a demuxer takes to hand over data it already has
++constexpr auto EMPTY_PACKET_GRACE = 1ms;
++// same as the idle sleep on full queues
++constexpr auto EMPTY_PACKET_MAX_SLEEP = 10ms;
++
+ bool IsKnownLanguage(const CLanguageTag& language)
+ {
+   return !language.IsUndetermined();
+@@ -1607,11 +1612,14 @@ void CVideoPlayer::Process()
+ 
+   Prepare();
+ 
++  std::optional<std::chrono::steady_clock::time_point> emptySince;
++
+   while (!m_bAbortRequest)
+   {
+     // check display lost
+     if (m_displayLost)
+     {
++      emptySince.reset();
+       CThread::Sleep(50ms);
+       continue;
+     }
+@@ -1700,6 +1708,7 @@ void CVideoPlayer::Process()
+           m_pDemuxer->SetSpeed(DVD_PLAYSPEED_PAUSE);
+         m_demuxerSpeed = DVD_PLAYSPEED_PAUSE;
+       }
++      emptySince.reset();
+       CThread::Sleep(10ms);
+       continue;
+     }
+@@ -1719,11 +1728,32 @@ void CVideoPlayer::Process()
+     ReadPacket(pPacket, pStream);
+     if (pPacket && !pStream)
+     {
++      // nothing yet, or input the demuxer dropped; special packets are progress
++      const bool waiting = pPacket->iStreamId == -1;
++
+       /* probably a empty packet, just free it and move on */
+       CDVDDemuxUtils::FreeDemuxPacket(pPacket);
++
++      if (!waiting)
++      {
++        emptySince.reset();
++        continue;
++      }
++
++      // back off in proportion to how long the demuxer has had nothing
++      const auto now = std::chrono::steady_clock::now();
++      if (!emptySince)
++        emptySince = now;
++      else if (now - *emptySince > EMPTY_PACKET_GRACE)
++        CThread::Sleep(std::clamp(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                      now - *emptySince - EMPTY_PACKET_GRACE),
++                                  1ms, EMPTY_PACKET_MAX_SLEEP));
++
+       continue;
+     }
+ 
++    emptySince.reset();
++
+     if (!pPacket)
+     {
+       // when paused, demuxer could be be returning empty
+-- 
+2.55.0
+
