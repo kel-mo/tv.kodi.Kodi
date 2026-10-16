@@ -378,8 +378,8 @@ modules:
           - /bin
         sources:
           - type: archive
-            url: https://www.freedesktop.org/software/libevdev/libevdev-1.13.7.tar.xz
-            sha256: 0caf824971108f15bb2ad356433bae198d7d3bf1e82d43f63626e069e060bfa6
+            url: https://www.freedesktop.org/software/libevdev/libevdev-1.14.0.tar.xz
+            sha256: 5a0966c7110648665983848bad696c7acba614a2160d2865d535397101007332
             x-checker-data:
               type: anitya
               project-id: 20540
@@ -420,8 +420,8 @@ modules:
       - --disable-static
     sources:
       - type: archive
-        url: https://github.com/libimobiledevice/libplist/releases/download/2.7.0/libplist-2.7.0.tar.bz2
-        sha512: 83d0398b75ea9e610e49b4b96a7675b854c7551d4faf3e82e74c5c45cf04bbd95478cc40688f0995742e6a50601744d2a36641d0673aa7cc413f5ce2ec42f2d4
+        url: https://github.com/libimobiledevice/libplist/releases/download/2.8.0/libplist-2.8.0.tar.bz2
+        sha512: 8adeb6357c3f4059f94002308d7f23b04d43156c5c7bcd62ea2a6bf077990957b8b53026d3ab31b9bfa892fe9d3b88b20219b1b0be208cb1c179ba88926eaa83
         x-checker-data:
           type: anitya
           project-id: 11675
@@ -448,8 +448,8 @@ modules:
       - /bin
     sources:
       - type: archive
-        url: https://github.com/mariadb-corporation/mariadb-connector-c/archive/refs/tags/v3.4.10.tar.gz
-        sha512: 8ab06eff88a0fdb278a6be566cb47e8a0828fb44b7b46c0ec35caab4c7b92ab2486ac6356537c07ed77b84d65d5f70dd703b87adf9b331fc96c72221cbbdd9cd
+        url: https://github.com/mariadb-corporation/mariadb-connector-c/archive/refs/tags/v3.4.11.tar.gz
+        sha512: 47d6fa55a9d562c11fdf9783972d0f745236e8d671db90cf132fa6d9cf9c4761f6ac03b14cd7eefb97d339603b903e19409b5bce56a1b5463e4c2479fb3b096f
         x-checker-data:
           type: anitya
           project-id: 16939
