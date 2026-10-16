@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.dolphin",
-            "commit": "d4922f253b6df41575ea824e750690ba0855f674"
+            "commit": "547936fe1975aa527f30bda090ca51f433dfb26a"
         },
         {
             "type": "file",
@@ -223,8 +223,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://github.com/libretro/dolphin/archive/ed70219e8bf86717d505b56a830d14ee7e7acce5.tar.gz",
-                    "sha256": "345e9355ae2ddce70c91a9249e56a83d4d040ed37f522194d83f9259a366b2fd"
+                    "url": "https://github.com/libretro/dolphin/archive/7a2d51d5fa3f72e9b03fed30449ac45b6d6ac8e2.tar.gz",
+                    "sha256": "a4efe13ea48da5cd97b5cc6d8901e47a136dd8dcb795f11ca4efc4fb0b8f9bde"
                 },
                 {
                     "type": "archive",

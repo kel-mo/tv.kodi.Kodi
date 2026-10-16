@@ -4,8 +4,8 @@
     "sources": [
         {
             "type": "git",
-            "url": "https://github.com/sunlollyking/vfs.pdf",
-            "commit": "cbc3b7462e9ac8e50d1432eac19dfa80335af1fd"
+            "url": "https://github.com/xbmc/vfs.pdf",
+            "commit": "13f7957126629169ecc622ea133699d5a33e148a"
         },
         {
             "type": "file",

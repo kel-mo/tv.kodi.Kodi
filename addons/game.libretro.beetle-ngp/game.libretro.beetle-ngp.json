@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.beetle-ngp",
-            "commit": "55e5cbe462ea8ec7be5bbdda2f35abb2f6b02ea0"
+            "commit": "914e109ca83812548e112390e0e4e34915e7b069"
         },
         {
             "type": "file",

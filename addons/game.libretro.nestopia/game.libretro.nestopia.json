@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.nestopia",
-            "commit": "60ff56133d4559126e993fceda3a24b5c073f104"
+            "commit": "99a0bcf808e6d5fb2c3dccd39b5e7b7abbd9c53e"
         },
         {
             "type": "file",
