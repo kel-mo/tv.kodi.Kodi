@@ -1,6 +1,6 @@
-From eff2d08ad851ac062aeca76f556ad9ad574cd525 Mon Sep 17 00:00:00 2001
+From 24f63cd61ce87eb5e9065ee91b4598cc32e871cc Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
-Date: Fri, 16 Oct 2026 06:24:40 +1000
+Date: Sat, 17 Oct 2026 05:00:27 +1000
 Subject: [PATCH] [VideoPlayer] Back off from a demuxer that keeps returning
  nothing
 
@@ -17,15 +17,15 @@ finishes within 1 ms costs nothing, and a slower one is delayed by at
 most its own length, so there is no fixed cap on packets per second.
 Any other packet ends the run, and so does idling on full queues. A
 seek or flush needs no reset of its own, because its first packet ends
-the run. Empty packets that stand in for input the demuxer dropped
-count too, but they arrive at the input rate and are still read at
-least a hundred times a second, so nothing backs up.
+the run. Empty packets that replace input the demuxer read and dropped
+are marked by the demuxer and end the run too, so channel starts are
+not throttled.
 ---
  xbmc/cores/VideoPlayer/VideoPlayer.cpp | 30 ++++++++++++++++++++++++++
  1 file changed, 30 insertions(+)
 
 diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-index b956ba92c6..a49e28e4d5 100644
+index b956ba92c6..ff5a20824b 100644
 --- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 @@ -91,6 +91,11 @@ using namespace std::chrono_literals;
@@ -67,8 +67,8 @@ index b956ba92c6..a49e28e4d5 100644
      ReadPacket(pPacket, pStream);
      if (pPacket && !pStream)
      {
-+      // nothing yet, or input the demuxer dropped; special packets are progress
-+      const bool waiting = pPacket->iStreamId == -1;
++      // nothing yet; special packets and dropped input are progress
++      const bool waiting = pPacket->iStreamId == -1 && !pPacket->m_inputDropped;
 +
        /* probably a empty packet, just free it and move on */
        CDVDDemuxUtils::FreeDemuxPacket(pPacket);
