@@ -794,6 +794,8 @@ modules:
         path: patches/kodi-videoplayer-mark-dropped-input.patch
       - type: patch
         path: patches/kodi-videoplayer-empty-packet-backoff.patch
+      - type: patch
+        path: patches/kodi-videoplayer-retry-addon-empty-packet.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
