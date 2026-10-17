@@ -1,4 +1,4 @@
-From 24f63cd61ce87eb5e9065ee91b4598cc32e871cc Mon Sep 17 00:00:00 2001
+From 792de0c9e7c2833fa0bc3dc70e3924dcd6c43d3e Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sat, 17 Oct 2026 05:00:27 +1000
 Subject: [PATCH] [VideoPlayer] Back off from a demuxer that keeps returning
@@ -14,18 +14,19 @@ lasts.
 Once a run of empty packets has lasted more than 1 ms, sleep for about
 as long as it has lasted beyond that, between 1 and 10 ms. A read that
 finishes within 1 ms costs nothing, and a slower one is delayed by at
-most its own length, so there is no fixed cap on packets per second.
-Any other packet ends the run, and so does idling on full queues. A
-seek or flush needs no reset of its own, because its first packet ends
-the run. Empty packets that replace input the demuxer read and dropped
-are marked by the demuxer and end the run too, so channel starts are
-not throttled.
+most its own length, so there is no fixed cap on packets per second. Any
+other packet ends the run, and so does idling on full queues. An empty
+packet that took longer than 1 ms to read ends the run as well: the
+demuxer blocked on input, so it has already paced the loop. A seek or
+flush needs no reset of its own, because its first packet ends the run.
+Empty packets that replace input the demuxer read and dropped are marked
+by the demuxer and end the run too, so channel starts are not throttled.
 ---
- xbmc/cores/VideoPlayer/VideoPlayer.cpp | 30 ++++++++++++++++++++++++++
- 1 file changed, 30 insertions(+)
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp | 32 ++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
 
 diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-index b956ba92c6..ff5a20824b 100644
+index b956ba92c6..e67a9dbd68 100644
 --- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 @@ -91,6 +91,11 @@ using namespace std::chrono_literals;
@@ -63,12 +64,18 @@ index b956ba92c6..ff5a20824b 100644
        CThread::Sleep(10ms);
        continue;
      }
-@@ -1719,11 +1728,32 @@ void CVideoPlayer::Process()
+@@ -1716,14 +1725,37 @@ void CVideoPlayer::Process()
+ 
+     DemuxPacket* pPacket = NULL;
+     CDemuxStream *pStream = NULL;
++    const auto readStart = std::chrono::steady_clock::now();
      ReadPacket(pPacket, pStream);
      if (pPacket && !pStream)
      {
-+      // nothing yet; special packets and dropped input are progress
-+      const bool waiting = pPacket->iStreamId == -1 && !pPacket->m_inputDropped;
++      const auto now = std::chrono::steady_clock::now();
++      // nothing yet; special packets, dropped input and reads that blocked are progress
++      const bool waiting = pPacket->iStreamId == -1 && !pPacket->m_inputDropped &&
++                           now - readStart <= EMPTY_PACKET_GRACE;
 +
        /* probably a empty packet, just free it and move on */
        CDVDDemuxUtils::FreeDemuxPacket(pPacket);
@@ -80,7 +87,6 @@ index b956ba92c6..ff5a20824b 100644
 +      }
 +
 +      // back off in proportion to how long the demuxer has had nothing
-+      const auto now = std::chrono::steady_clock::now();
 +      if (!emptySince)
 +        emptySince = now;
 +      else if (now - *emptySince > EMPTY_PACKET_GRACE)
