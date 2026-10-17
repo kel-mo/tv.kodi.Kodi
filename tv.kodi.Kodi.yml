@@ -466,8 +466,9 @@ modules:
         x-checker-data:
           type: json
           url: https://pypi.org/pypi/pycryptodome/json
-          version-query: .info.version
-          url-query: .urls[] | select(.filename | endswith(".tar.gz")) | .url
+          # 4.x drops the Cryptodome namespace that add-ons import
+          version-query: '[.releases | keys[] | select(test("^3\\.[0-9]+\\.[0-9]+$"))] | sort_by(split(".") | map(tonumber)) | last'
+          url-query: .releases[$version][] | select(.filename | endswith(".tar.gz")) | .url
   - name: python3-pybind11
     buildsystem: simple
     cleanup:
