@@ -778,6 +778,8 @@ modules:
       - type: patch
         path: patches/kodi-gui-subpixel-textures.patch
       - type: patch
+        path: patches/kodi-ffmpegimage-tile-grid.patch
+      - type: patch
         path: patches/kodi-gui-mipmap-textures.patch
       - type: patch
         path: patches/kodi-videoplayer-revert-empty-packet-sleep.patch
