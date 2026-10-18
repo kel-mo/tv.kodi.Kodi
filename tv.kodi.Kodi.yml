@@ -766,17 +766,13 @@ modules:
     sources:
       - type: git
         url: https://github.com/xbmc/xbmc.git
-        commit: 11f5040156551bafcfda36ee1a3c0523c995ca7f
+        commit: b387094301b30f8580fcd92f1f590e664eab069e
       - type: patch
         path: patches/kodi.sh.in.patch
       - type: patch
-        path: patches/kodi-gui-subpixel-textures.patch
+        path: patches/kodi-python-set-async-exc.patch
       - type: patch
-        path: patches/kodi-gui-mipmap-textures.patch
-      - type: patch
-        path: patches/kodi-videoplayer-same-stream.patch
-      - type: patch
-        path: patches/kodi-python-infolabel-release-gil.patch
+        path: patches/kodi-script-stop-timeout.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
