@@ -777,6 +777,8 @@ modules:
         path: patches/kodi.sh.in.patch
       - type: patch
         path: patches/kodi-gui-subpixel-textures.patch
+      - type: patch
+        path: patches/kodi-gui-mipmap-textures.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
