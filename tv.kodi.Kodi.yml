@@ -795,6 +795,9 @@ modules:
         path: patches/kodi-script-stop-timeout.patch
       - type: patch
         path: patches/kodi-script-abort-notify.patch
+      - type: patch
+        path: patches/kodi-ffmpegimage-icc.patch
+        use-git: true
       - type: file
         path: addon-list.txt
         dest: build/download/

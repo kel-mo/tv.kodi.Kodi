@@ -1,0 +1,942 @@
+From c6feddb6b64e1ae70e0248b366784543d46935db Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Thu, 22 Oct 2026 23:43:16 +1000
+Subject: [PATCH] FFmpegImage: Convert pictures with an ICC profile to sRGB
+
+Kodi draws pictures as sRGB, so a photo whose ICC profile describes a
+wider color space shows duller than it should. In a Display P3 photo, as
+a Pixel saves with "Rich colour" on, P3 (200, 100, 100) is sRGB
+(215, 93, 97), but Kodi draws it as sRGB (200, 100, 100).
+
+FFmpeg attaches the ICC profile of JPEG, PNG (without a cICP chunk) and
+WebP pictures to the decoded frame, and that of HEIF and AVIF ones from
+the container. When Kodi is built with lcms2, convert the scaled RGB32
+pixels from that profile to sRGB, with relative colorimetric intent.
+Profiles that match sRGB and carry no LUT, and gray, CMYK and other
+non-RGB ones, are left alone, so sRGB-tagged pictures only cost a
+profile parse and untagged ones nothing. Image decoder add-ons are not
+covered, nor color given as primaries without a profile (nclx, cICP).
+
+The test pictures are flat 32x32 JPEGs with profiles that lcms2 builds,
+written by tools/testdata/mkicc.py.
+
+Assisted-by: Claude
+---
+ cmake/installdata/test-reference-data.txt     |   7 +
+ tools/testdata/mkicc.py                       | 179 +++++++++++++++
+ xbmc/guilib/FFmpegImage.cpp                   | 133 +++++++++++
+ xbmc/guilib/test/CMakeLists.txt               |   3 +-
+ xbmc/guilib/test/TestFFmpegImage.cpp          | 207 ++++++++++++++++++
+ .../test/testdata/icc-gray-untagged.jpg       | Bin 0 -> 342 bytes
+ xbmc/guilib/test/testdata/icc-gray.jpg        | Bin 0 -> 724 bytes
+ xbmc/guilib/test/testdata/icc-p3.jpg          | Bin 0 -> 1272 bytes
+ xbmc/guilib/test/testdata/icc-srgb-lut.jpg    | Bin 0 -> 1580 bytes
+ xbmc/guilib/test/testdata/icc-srgb-v2.jpg     | Bin 0 -> 9496 bytes
+ xbmc/guilib/test/testdata/icc-srgb-v4.jpg     | Bin 0 -> 1264 bytes
+ xbmc/guilib/test/testdata/icc-untagged.jpg    | Bin 0 -> 658 bytes
+ 12 files changed, 528 insertions(+), 1 deletion(-)
+ create mode 100644 tools/testdata/mkicc.py
+ create mode 100644 xbmc/guilib/test/TestFFmpegImage.cpp
+ create mode 100644 xbmc/guilib/test/testdata/icc-gray-untagged.jpg
+ create mode 100644 xbmc/guilib/test/testdata/icc-gray.jpg
+ create mode 100644 xbmc/guilib/test/testdata/icc-p3.jpg
+ create mode 100644 xbmc/guilib/test/testdata/icc-srgb-lut.jpg
+ create mode 100644 xbmc/guilib/test/testdata/icc-srgb-v2.jpg
+ create mode 100644 xbmc/guilib/test/testdata/icc-srgb-v4.jpg
+ create mode 100644 xbmc/guilib/test/testdata/icc-untagged.jpg
+
+diff --git a/cmake/installdata/test-reference-data.txt b/cmake/installdata/test-reference-data.txt
+index f89eef7950..fca4ace4b7 100644
+--- a/cmake/installdata/test-reference-data.txt
++++ b/cmake/installdata/test-reference-data.txt
+@@ -44,6 +44,13 @@ xbmc/filesystem/test/dummy64.zip
+ xbmc/filesystem/test/refRARnormal.rar
+ xbmc/filesystem/test/refRARstored.rar
+ xbmc/games/addons/cheats/test/game.cht.zip
++xbmc/guilib/test/testdata/icc-gray-untagged.jpg
++xbmc/guilib/test/testdata/icc-gray.jpg
++xbmc/guilib/test/testdata/icc-p3.jpg
++xbmc/guilib/test/testdata/icc-srgb-lut.jpg
++xbmc/guilib/test/testdata/icc-srgb-v2.jpg
++xbmc/guilib/test/testdata/icc-srgb-v4.jpg
++xbmc/guilib/test/testdata/icc-untagged.jpg
+ xbmc/music/tags/test/testdata/tagged.mp2
+ xbmc/network/test/data/test-ranges.txt
+ xbmc/network/test/data/test.html
+diff --git a/tools/testdata/mkicc.py b/tools/testdata/mkicc.py
+new file mode 100644
+index 0000000000..c114878733
+--- /dev/null
++++ b/tools/testdata/mkicc.py
+@@ -0,0 +1,179 @@
++#!/usr/bin/env python3
++#
++#  Copyright (C) 2026 Team Kodi
++#  This file is part of Kodi - https://kodi.tv
++#
++#  SPDX-License-Identifier: GPL-2.0-or-later
++#  See LICENSES/README.md for more information.
++#
++"""Write the ICC profile fixtures the FFmpegImage tests read.
++
++    python3 tools/testdata/mkicc.py [outdir]
++
++Writes to xbmc/guilib/test/testdata/ unless told otherwise. Needs Pillow and lcms2.
++
++Each file is a flat 32x32 JPEG, RGB (200, 100, 100) or gray 128, untagged or tagged with a
++profile that lcms2 builds from the primaries and curves below, so the files stay small and
++nothing in them comes from a camera or a vendor. The profiles' creation date is fixed, so the
++output is the same on every run with the same Pillow and lcms2.
++"""
++
++import ctypes
++import ctypes.util
++import struct
++import sys
++from pathlib import Path
++
++from PIL import Image
++
++SIZE = 32
++COLOUR = (200, 100, 100)
++GRAY = 128
++CREATED = (2026, 1, 1, 0, 0, 0)  # year, month, day, hours, minutes, seconds
++
++# CIE xy chromaticities: white point, then red, green and blue primaries
++D65 = (0.3127, 0.3290)
++DISPLAY_P3 = ((0.680, 0.320), (0.265, 0.690), (0.150, 0.060))
++SRGB = ((0.64, 0.33), (0.30, 0.60), (0.15, 0.06))
++
++lcms = ctypes.CDLL(ctypes.util.find_library("lcms2") or "liblcms2.so.2")
++
++
++class XyY(ctypes.Structure):
++    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double), ("Y", ctypes.c_double)]
++
++
++class Primaries(ctypes.Structure):
++    _fields_ = [("red", XyY), ("green", XyY), ("blue", XyY)]
++
++
++class XYZ(ctypes.Structure):
++    _fields_ = [("X", ctypes.c_double), ("Y", ctypes.c_double), ("Z", ctypes.c_double)]
++
++
++P = ctypes.c_void_p
++for name, restype, argtypes in (
++    ("cmsBuildParametricToneCurve", P, [P, ctypes.c_int, ctypes.POINTER(ctypes.c_double)]),
++    ("cmsBuildTabulatedToneCurveFloat", P, [P, ctypes.c_uint32, ctypes.POINTER(ctypes.c_float)]),
++    ("cmsCreateRGBProfile", P, [ctypes.POINTER(XyY), ctypes.POINTER(Primaries), P * 3]),
++    ("cmsCreate_sRGBProfile", P, []),
++    ("cmsCreateGrayProfile", P, [ctypes.POINTER(XyY), P]),
++    ("cmsSetProfileVersion", None, [P, ctypes.c_double]),
++    ("cmsReadTag", P, [P, ctypes.c_uint32]),
++    ("cmsPipelineAlloc", P, [P, ctypes.c_uint32, ctypes.c_uint32]),
++    ("cmsStageAllocToneCurves", P, [P, ctypes.c_uint32, P]),
++    ("cmsStageAllocCLut16bit", P, [P, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, P]),
++    ("cmsPipelineInsertStage", ctypes.c_int, [P, ctypes.c_int, P]),
++    ("cmsMLUalloc", P, [P, ctypes.c_uint32]),
++    ("cmsMLUsetASCII", ctypes.c_int, [P, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]),
++    ("cmsWriteTag", ctypes.c_int, [P, ctypes.c_uint32, P]),
++    ("cmsSaveProfileToMem", ctypes.c_int, [P, P, ctypes.POINTER(ctypes.c_uint32)]),
++):
++    getattr(lcms, name).restype = restype
++    getattr(lcms, name).argtypes = argtypes
++
++
++def tag(signature: str) -> int:
++    return struct.unpack(">I", signature.encode("ascii"))[0]
++
++
++def srgb_curve():
++    """The sRGB transfer function as an ICC parametric curve of type 4."""
++    params = (ctypes.c_double * 5)(2.4, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045)
++    return lcms.cmsBuildParametricToneCurve(None, 4, params)
++
++
++def srgb_table(entries: int):
++    """The sRGB transfer function sampled into a table, as v2 profiles carry it."""
++    def eotf(v: float) -> float:
++        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
++
++    table = (ctypes.c_float * entries)(*[eotf(i / (entries - 1)) for i in range(entries)])
++    return lcms.cmsBuildTabulatedToneCurveFloat(None, entries, table)
++
++
++def rgb_profile(primaries, curve):
++    white = XyY(*D65, 1.0)
++    prims = Primaries(*(XyY(x, y, 1.0) for x, y in primaries))
++    curves = (P * 3)(curve, curve, curve)
++    return lcms.cmsCreateRGBProfile(ctypes.byref(white), ctypes.byref(prims), curves)
++
++
++def gray_profile(gamma: float):
++    white = XyY(*D65, 1.0)
++    curve = lcms.cmsBuildParametricToneCurve(None, 1, (ctypes.c_double * 1)(gamma))
++    return lcms.cmsCreateGrayProfile(ctypes.byref(white), curve)
++
++
++def lut_profile():
++    """sRGB's matrix and curves, plus a LUT that swaps red and blue, which lcms2 uses instead."""
++    profile = lcms.cmsCreate_sRGBProfile()
++    xyz = [
++        ctypes.cast(lcms.cmsReadTag(profile, tag(sig)), ctypes.POINTER(XYZ)).contents
++        for sig in ("rXYZ", "gXYZ", "bXYZ")
++    ]
++    # the LUT's input curves undo sRGB's transfer function, so its 2x2x2 table maps linear RGB to
++    # XYZ, which interpolating the table does exactly; XYZ is encoded with 1.0 as 0x8000
++    table = []
++    for r in (0, 1):
++        for g in (0, 1):
++            for b in (0, 1):
++                for axis in ("X", "Y", "Z"):
++                    value = sum(w * getattr(c, axis) for w, c in zip((b, g, r), xyz))
++                    table.append(round(value * 0x8000))
++    curves = (P * 3)(srgb_curve(), srgb_curve(), srgb_curve())
++    lut = lcms.cmsPipelineAlloc(None, 3, 3)
++    for stage in (
++        lcms.cmsStageAllocToneCurves(None, 3, curves),
++        lcms.cmsStageAllocCLut16bit(None, 2, 3, 3, (ctypes.c_uint16 * len(table))(*table)),
++        lcms.cmsStageAllocToneCurves(None, 3, None),
++    ):
++        lcms.cmsPipelineInsertStage(lut, 1, stage)  # at the end
++    lcms.cmsWriteTag(profile, tag("A2B0"), lut)
++    return profile
++
++
++def save(profile, description: str) -> bytes:
++    for signature, text in (("desc", description), ("cprt", "No copyright, use freely")):
++        mlu = lcms.cmsMLUalloc(None, 1)
++        lcms.cmsMLUsetASCII(mlu, b"en", b"US", text.encode("ascii"))
++        lcms.cmsWriteTag(profile, tag(signature), mlu)
++    size = ctypes.c_uint32(0)
++    lcms.cmsSaveProfileToMem(profile, None, ctypes.byref(size))
++    data = ctypes.create_string_buffer(size.value)
++    lcms.cmsSaveProfileToMem(profile, data, ctypes.byref(size))
++    icc = bytearray(data.raw[: size.value])
++    # lcms2 stamps the time of saving into the header (dateTimeNumber at offset 24)
++    icc[24:36] = struct.pack(">6H", *CREATED)
++    return bytes(icc)
++
++
++def fixtures():
++    """Name, image and profile of each fixture."""
++    rgb = Image.new("RGB", (SIZE, SIZE), COLOUR)
++    gray = Image.new("L", (SIZE, SIZE), GRAY)
++    srgb_v2 = rgb_profile(SRGB, srgb_table(1024))
++    lcms.cmsSetProfileVersion(srgb_v2, 2.1)
++    return (
++        ("untagged", rgb, None),
++        ("p3", rgb, save(rgb_profile(DISPLAY_P3, srgb_curve()), "Display P3 (test)")),
++        ("srgb-v4", rgb, save(lcms.cmsCreate_sRGBProfile(), "sRGB v4 (test)")),
++        ("srgb-v2", rgb, save(srgb_v2, "sRGB v2 table (test)")),
++        ("srgb-lut", rgb, save(lut_profile(), "sRGB with a red and blue swapping LUT (test)")),
++        ("gray-untagged", gray, None),
++        ("gray", gray, save(gray_profile(2.2), "Gray gamma 2.2 (test)")),
++    )
++
++
++def main() -> None:
++    outdir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("xbmc/guilib/test/testdata")
++    outdir.mkdir(parents=True, exist_ok=True)
++    for name, image, icc in fixtures():
++        path = outdir / f"icc-{name}.jpg"
++        extra = {"icc_profile": icc} if icc else {}
++        image.save(path, quality=100, subsampling=0, **extra)
++        print(f"wrote {path} ({path.stat().st_size} bytes)")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/xbmc/guilib/FFmpegImage.cpp b/xbmc/guilib/FFmpegImage.cpp
+index e12079d3e8..be4c821726 100644
+--- a/xbmc/guilib/FFmpegImage.cpp
++++ b/xbmc/guilib/FFmpegImage.cpp
+@@ -20,6 +20,12 @@
+ #include <cmath>
+ #include <cstdint>
+ #include <cstring>
++#include <memory>
++#include <utility>
++
++#if defined(HAVE_LCMS2)
++#include <lcms2.h>
++#endif
+ 
+ extern "C"
+ {
+@@ -140,6 +146,129 @@ bool CopyTile(AVFrame* canvas, const AVFrame* tile, int x, int y)
+   }
+   return true;
+ }
++
++#if defined(HAVE_LCMS2)
++// ICC profiles come from any image Kodi loads, so huge ones aren't parsed
++constexpr size_t MAX_ICC_PROFILE_SIZE = 4 * 1024 * 1024;
++// how far colorants (XYZ) and tone curves may be from sRGB's for a profile to count as sRGB
++constexpr double SRGB_COLORANT_TOLERANCE = 0.002;
++constexpr float SRGB_CURVE_TOLERANCE = 1.0f / 255;
++constexpr int SRGB_CURVE_SAMPLES = 16;
++
++using ColorProfile = std::unique_ptr<void, decltype(&cmsCloseProfile)>;
++using ColorTransform = std::unique_ptr<void, decltype(&cmsDeleteTransform)>;
++
++void LogColorError(cmsContext, cmsUInt32Number code, const char* text)
++{
++  CLog::Log(LOGDEBUG, "CFFmpegImage: lcms2 error {}: {}", code, text);
++}
++
++// its own context, apart from the global one VideoPlayer's color management changes.
++// Never deleted: it lives as long as Kodi, so no image job can outlive it.
++cmsContext ColorContext()
++{
++  static const cmsContext context{[]
++                                  {
++                                    cmsContext ctx{cmsCreateContext(nullptr, nullptr)};
++                                    if (ctx)
++                                      cmsSetLogErrorHandlerTHR(ctx, LogColorError);
++                                    return ctx;
++                                  }()};
++  return context;
++}
++
++// sRGB's encoding of a linear value
++float EncodeSRGB(float linear)
++{
++  return linear <= 0.0031308f ? 12.92f * linear : 1.055f * std::pow(linear, 1 / 2.4f) - 0.055f;
++}
++
++// an RGB profile that converts to the profile connection space
++bool IsRGBProfile(cmsHPROFILE profile)
++{
++  const cmsProfileClassSignature deviceClass{cmsGetDeviceClass(profile)};
++  const cmsColorSpaceSignature pcs{cmsGetPCS(profile)};
++  return cmsGetColorSpace(profile) == cmsSigRgbData &&
++         (pcs == cmsSigXYZData || pcs == cmsSigLabData) &&
++         (deviceClass == cmsSigInputClass || deviceClass == cmsSigDisplayClass ||
++          deviceClass == cmsSigOutputClass || deviceClass == cmsSigColorSpaceClass);
++}
++
++// a matrix/curve profile with sRGB's colorants and tone curves, so the pixels are already sRGB.
++// Tone curves are sampled, as v2 profiles store them as tables and v4 ones as parameters, and
++// compared once encoded as sRGB, so within a code value or so.
++bool IsSRGB(cmsHPROFILE profile, cmsHPROFILE srgb)
++{
++  // lcms2 converts with the profile's LUT rather than its matrix and curves when it has one
++  if (!cmsIsMatrixShaper(profile) || cmsIsTag(profile, cmsSigDToB1Tag) ||
++      cmsIsTag(profile, cmsSigAToB1Tag) || cmsIsTag(profile, cmsSigAToB0Tag))
++    return false;
++
++  static constexpr std::array<std::pair<cmsTagSignature, cmsTagSignature>, 3> channels{
++      {{cmsSigRedColorantTag, cmsSigRedTRCTag},
++       {cmsSigGreenColorantTag, cmsSigGreenTRCTag},
++       {cmsSigBlueColorantTag, cmsSigBlueTRCTag}}};
++  for (const auto& [colorantTag, curveTag] : channels)
++  {
++    const auto* colorant{static_cast<const cmsCIEXYZ*>(cmsReadTag(profile, colorantTag))};
++    const auto* srgbColorant{static_cast<const cmsCIEXYZ*>(cmsReadTag(srgb, colorantTag))};
++    const auto* curve{static_cast<const cmsToneCurve*>(cmsReadTag(profile, curveTag))};
++    if (!colorant || !srgbColorant || !curve)
++      return false;
++
++    if (std::abs(colorant->X - srgbColorant->X) > SRGB_COLORANT_TOLERANCE ||
++        std::abs(colorant->Y - srgbColorant->Y) > SRGB_COLORANT_TOLERANCE ||
++        std::abs(colorant->Z - srgbColorant->Z) > SRGB_COLORANT_TOLERANCE)
++      return false;
++
++    for (int i = 0; i <= SRGB_CURVE_SAMPLES; ++i)
++    {
++      const float x{static_cast<float>(i) / SRGB_CURVE_SAMPLES};
++      if (std::abs(EncodeSRGB(cmsEvalToneCurveFloat(curve, x)) - x) > SRGB_CURVE_TOLERANCE)
++        return false;
++    }
++  }
++  return true;
++}
++
++// convert RGB32 pixels from the frame's ICC profile to sRGB, in place
++void ConvertToSRGB(
++    const AVFrame* frame, uint8_t* pixels, unsigned int width, unsigned int height, int linesize)
++{
++  const AVFrameSideData* sideData{av_frame_get_side_data(frame, AV_FRAME_DATA_ICC_PROFILE)};
++  if (!sideData || sideData->size == 0 || sideData->size > MAX_ICC_PROFILE_SIZE)
++    return;
++
++  const cmsContext context{ColorContext()};
++  if (!context)
++    return;
++
++  const ColorProfile profile{cmsOpenProfileFromMemTHR(context, sideData->data,
++                                                      static_cast<cmsUInt32Number>(sideData->size)),
++                             cmsCloseProfile};
++  if (!profile || !IsRGBProfile(profile.get()))
++    return;
++
++  // one per call: lcms2 caches tags inside a profile, so it can't be shared between image jobs
++  const ColorProfile srgb{cmsCreate_sRGBProfileTHR(context), cmsCloseProfile};
++  if (!srgb || IsSRGB(profile.get(), srgb.get()))
++    return;
++
++  // RGB32 is BGRA in memory on little-endian systems and ARGB on big-endian ones.
++  // Matrix/curve profiles have a single rendering, so relative colorimetric, without the black
++  // point compensation lcms2 adds to perceptual for v4 profiles.
++  constexpr cmsUInt32Number format{AV_PIX_FMT_RGB32 == AV_PIX_FMT_BGRA ? TYPE_BGRA_8 : TYPE_ARGB_8};
++  const ColorTransform transform{cmsCreateTransformTHR(context, profile.get(), format, srgb.get(),
++                                                       format, INTENT_RELATIVE_COLORIMETRIC,
++                                                       cmsFLAGS_COPY_ALPHA),
++                                 cmsDeleteTransform};
++  if (!transform)
++    return;
++
++  const auto stride{static_cast<cmsUInt32Number>(linesize)};
++  cmsDoTransformLineStride(transform.get(), pixels, pixels, width, height, stride, stride, 0, 0);
++}
++#endif
+ } // namespace
+ 
+ Frame::Frame(const Frame& src) :
+@@ -783,6 +912,10 @@ bool CFFmpegImage::DecodeFrame(AVFrame* frame, unsigned int width, unsigned int
+     pictureRGB->data, pictureRGB->linesize);
+   sws_freeContext(context);
+ 
++#if defined(HAVE_LCMS2)
++  ConvertToSRGB(frame, pictureRGB->data[0], width, height, pictureRGB->linesize[0]);
++#endif
++
+   if (needsCopy)
+   {
+     int minPitch = std::min((int)pitch, pictureRGB->linesize[0]);
+diff --git a/xbmc/guilib/test/CMakeLists.txt b/xbmc/guilib/test/CMakeLists.txt
+index 8693942eee..e5a0d8ff1d 100644
+--- a/xbmc/guilib/test/CMakeLists.txt
++++ b/xbmc/guilib/test/CMakeLists.txt
+@@ -1,4 +1,5 @@
+-set(SOURCES TestGUIControlFactory.cpp
++set(SOURCES TestFFmpegImage.cpp
++            TestGUIControlFactory.cpp
+             TestGUIControlGroup.cpp
+             TestGamesGUIInfo.cpp
+             TestGUIFixedListContainer.cpp
+diff --git a/xbmc/guilib/test/TestFFmpegImage.cpp b/xbmc/guilib/test/TestFFmpegImage.cpp
+new file mode 100644
+index 0000000000..efb6d9415f
+--- /dev/null
++++ b/xbmc/guilib/test/TestFFmpegImage.cpp
+@@ -0,0 +1,207 @@
++/*
++ *  Copyright (C) 2026 Team Kodi
++ *  This file is part of Kodi - https://kodi.tv
++ *
++ *  SPDX-License-Identifier: GPL-2.0-or-later
++ *  See LICENSES/README.md for more information.
++ */
++
++#include "guilib/FFmpegImage.h"
++#include "guilib/TextureFormats.h"
++#include "test/TestUtils.h"
++
++#include <algorithm>
++#include <cstdint>
++#include <cstring>
++#include <fstream>
++#include <iterator>
++#include <memory>
++#include <string>
++#include <vector>
++
++#include <gtest/gtest.h>
++
++extern "C"
++{
++#include <libavutil/mem.h>
++}
++
++namespace
++{
++// the test images are flat 32x32 JPEGs, RGB (200, 100, 100) or gray 128, made by
++// tools/testdata/mkicc.py
++constexpr unsigned int SIZE = 32;
++constexpr char ICC_NAME[] = "ICC_PROFILE"; // with its NUL, as JPEG's APP2 segments name it
++
++struct Pixels
++{
++  std::unique_ptr<uint8_t, decltype(&av_free)> data{nullptr, av_free};
++  unsigned int width{0};
++  unsigned int height{0};
++  unsigned int pitch{0};
++
++  // B, G, R, A
++  const uint8_t* At(unsigned int x, unsigned int y) const { return data.get() + y * pitch + x * 4; }
++  std::vector<uint8_t> Rows() const
++  {
++    std::vector<uint8_t> rows;
++    if (!data)
++      return rows;
++    for (unsigned int y = 0; y < height; ++y)
++      rows.insert(rows.end(), At(0, y), At(0, y) + width * 4);
++    return rows;
++  }
++};
++
++std::vector<unsigned char> ReadFixture(const std::string& name)
++{
++  std::ifstream file(XBMC_REF_FILE_PATH("xbmc/guilib/test/testdata/" + name), std::ios::binary);
++  std::vector<unsigned char> data{std::istreambuf_iterator<char>(file), {}};
++  EXPECT_FALSE(data.empty()) << name;
++  return data;
++}
++
++// no data when the image can't be loaded or decoded
++Pixels DecodeData(std::vector<unsigned char> data,
++                  unsigned int width = SIZE,
++                  unsigned int height = SIZE)
++{
++  Pixels pixels;
++  CFFmpegImage image("image/jpeg");
++  if (!image.LoadImageFromMemory(data.data(), static_cast<unsigned int>(data.size()), width,
++                                 height))
++    return pixels;
++
++  pixels.width = width;
++  pixels.height = height;
++  pixels.pitch = width * 4;
++  pixels.data.reset(static_cast<uint8_t*>(av_malloc(pixels.pitch * height)));
++  if (!image.Decode(pixels.data.get(), width, height, pixels.pitch, XB_FMT_A8R8G8B8))
++    pixels.data.reset();
++  return pixels;
++}
++
++Pixels Decode(const std::string& name, unsigned int width = SIZE, unsigned int height = SIZE)
++{
++  return DecodeData(ReadFixture(name), width, height);
++}
++
++// the ICC profile in a JPEG's APP2 segments
++std::vector<unsigned char> IccOf(const std::vector<unsigned char>& jpeg)
++{
++  std::vector<unsigned char> icc;
++  for (size_t at = 2; at + 4 <= jpeg.size() && jpeg[at] == 0xFF && jpeg[at + 1] != 0xDA;)
++  {
++    const size_t length{static_cast<size_t>(jpeg[at + 2] << 8 | jpeg[at + 3])};
++    if (jpeg[at + 1] == 0xE2 && length > 16 &&
++        std::memcmp(&jpeg[at + 4], ICC_NAME, sizeof(ICC_NAME)) == 0)
++      icc.insert(icc.end(), jpeg.begin() + at + 18, jpeg.begin() + at + 2 + length);
++    at += 2 + length;
++  }
++  return icc;
++}
++
++// an untagged JPEG with the profile added in APP2 segments, right after its start of image
++std::vector<unsigned char> WithIcc(const std::vector<unsigned char>& jpeg,
++                                   const std::vector<unsigned char>& icc)
++{
++  constexpr size_t CHUNK = 65519; // 65535 less the length, name, sequence number and count
++  const size_t count{(icc.size() + CHUNK - 1) / CHUNK};
++  std::vector<unsigned char> out(jpeg.begin(), jpeg.begin() + 2);
++  for (size_t n = 0; n < count; ++n)
++  {
++    const size_t size{std::min(CHUNK, icc.size() - n * CHUNK)};
++    const size_t length{2 + sizeof(ICC_NAME) + 2 + size};
++    out.insert(out.end(), {0xFF, 0xE2, static_cast<unsigned char>(length >> 8),
++                           static_cast<unsigned char>(length & 0xFF)});
++    out.insert(out.end(), ICC_NAME, ICC_NAME + sizeof(ICC_NAME));
++    out.push_back(static_cast<unsigned char>(n + 1));
++    out.push_back(static_cast<unsigned char>(count));
++    out.insert(out.end(), icc.begin() + n * CHUNK, icc.begin() + n * CHUNK + size);
++  }
++  out.insert(out.end(), jpeg.begin() + 2, jpeg.end());
++  return out;
++}
++
++void ExpectBGRA(const uint8_t* pixel, int b, int g, int r)
++{
++  EXPECT_NEAR(pixel[0], b, 2);
++  EXPECT_NEAR(pixel[1], g, 2);
++  EXPECT_NEAR(pixel[2], r, 2);
++  EXPECT_EQ(pixel[3], 255);
++}
++} // namespace
++
++TEST(TestFFmpegImage, UntaggedImageIsUnchanged)
++{
++  const Pixels pixels{Decode("icc-untagged.jpg")};
++  ASSERT_TRUE(pixels.data);
++  ExpectBGRA(pixels.At(SIZE / 2, SIZE / 2), 100, 100, 200);
++}
++
++TEST(TestFFmpegImage, SRGBProfileIsLeftAlone)
++{
++  const std::vector<uint8_t> untagged{Decode("icc-untagged.jpg").Rows()};
++  ASSERT_FALSE(untagged.empty());
++  EXPECT_EQ(Decode("icc-srgb-v4.jpg").Rows(), untagged); // parametric curves
++  EXPECT_EQ(Decode("icc-srgb-v2.jpg").Rows(), untagged); // 1024-entry tables
++}
++
++TEST(TestFFmpegImage, GrayProfileIsLeftAlone)
++{
++  const std::vector<uint8_t> untagged{Decode("icc-gray-untagged.jpg").Rows()};
++  ASSERT_FALSE(untagged.empty());
++  EXPECT_EQ(Decode("icc-gray.jpg").Rows(), untagged);
++}
++
++TEST(TestFFmpegImage, BrokenProfileIsLeftAlone)
++{
++  const std::vector<unsigned char> jpeg{ReadFixture("icc-untagged.jpg")};
++  const std::vector<uint8_t> untagged{DecodeData(jpeg).Rows()};
++  ASSERT_FALSE(untagged.empty());
++  std::vector<unsigned char> truncated{IccOf(ReadFixture("icc-p3.jpg"))};
++  ASSERT_GT(truncated.size(), 200u);
++  truncated.resize(200);
++  EXPECT_EQ(DecodeData(WithIcc(jpeg, truncated)).Rows(), untagged);
++  EXPECT_EQ(DecodeData(WithIcc(jpeg, std::vector<unsigned char>(1000, 0x5A))).Rows(), untagged);
++}
++
++#if defined(HAVE_LCMS2)
++TEST(TestFFmpegImage, DisplayP3IsConvertedToSRGB)
++{
++  const Pixels pixels{Decode("icc-p3.jpg")};
++  ASSERT_TRUE(pixels.data);
++  ExpectBGRA(pixels.At(SIZE / 2, SIZE / 2), 97, 93, 215);
++}
++
++TEST(TestFFmpegImage, LutIsUsedOverAnSRGBMatrix)
++{
++  // sRGB's matrix and curves with a LUT that swaps red and blue, which lcms2 converts with
++  const Pixels pixels{Decode("icc-srgb-lut.jpg")};
++  ASSERT_TRUE(pixels.data);
++  ExpectBGRA(pixels.At(SIZE / 2, SIZE / 2), 200, 100, 100);
++}
++
++TEST(TestFFmpegImage, ConversionFollowsTheRowStride)
++{
++  // 30 pixels wide gives rows of 120 bytes, padded to a wider stride inside the decoder
++  const Pixels pixels{Decode("icc-p3.jpg", 30, 30)};
++  ASSERT_TRUE(pixels.data);
++  for (unsigned int y = 0; y < pixels.height; ++y)
++  {
++    for (unsigned int x = 0; x < pixels.width; ++x)
++    {
++      SCOPED_TRACE(testing::Message() << "x " << x << " y " << y);
++      ExpectBGRA(pixels.At(x, y), 97, 93, 215);
++    }
++  }
++}
++
++#else
++TEST(TestFFmpegImage, DisplayP3IsLeftAloneWithoutLcms2)
++{
++  const Pixels pixels{Decode("icc-p3.jpg")};
++  ASSERT_TRUE(pixels.data);
++  ExpectBGRA(pixels.At(SIZE / 2, SIZE / 2), 100, 100, 200);
++}
++#endif
+diff --git a/xbmc/guilib/test/testdata/icc-gray-untagged.jpg b/xbmc/guilib/test/testdata/icc-gray-untagged.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..c109d265a55247c80ac6d011cbf56cba2c948f36
+GIT binary patch
+literal 342
+zcmex=<NpH&0WUXCHwH#V1_nkTWcYuZ!5PS-4E#U9z|Fy+z@Wg$D9G^t2!lM(a8`(s
+z3{b$x#LU9V#?HaX#SK)jRe*tsk(rr^g_)I=g$1a(7AViaBFHMFXz0i$9GJ+iR48K9
+zIB_9|veU+cqCpows2C>|HF0u@iAzXIsj8`KXlj|5nweWzS~<J8y19FJdIg7shJ{B&
+zMkS}Drln_OW)+u|mX%jjRyDV@wzYS3c1@Z*W$Lu)GiJ_Ow0OzVWy@ErT(xQQmaW^i
+z@7THP(BUITj~zd8^3<ivSFT>We&gn?hmRgVdHU@6i<hrHe)|07>$mSee*XG@i-7|a
+OZ1xNqi@M<G|4jgxN@s8Y
+
+literal 0
+HcmV?d00001
+
+diff --git a/xbmc/guilib/test/testdata/icc-gray.jpg b/xbmc/guilib/test/testdata/icc-gray.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..38741f3e0b7de3b4ca0f704d0f1a53c3527588f4
+GIT binary patch
+literal 724
+zcmex=<NpH&0WUXCHwH#V1_nkTWcdGxvBuNcIX)oB-_6s<6(W(7lbl=3;=sU=n^#ig
+z9^@Dq5gDbx{tBXl0SFS4iwhhB0(?Mh?BLrqkm(EzmvupAVON7wlqDs#I2kCr1&G~}
+z3yMmB^dBJhDK9AivKc*qY?17cAZH*u2FMo3%_#+`2LX_+JgIr1!9ZFIh-Dbu8HyMZ
+z87dhR7}9}sE)XUH*+vX{K&-%^!BE1G%1{g>HG%%cZjJ%i96yG9p!#GWSpYPxh#?bb
+zUItK~4p6idXhJHGP6LXk0$~nAB`C~*`hehbAlOxmVrL2xixMGXK$6MW`2TGNXJC+1
+z2L2yl;N}3@t-#1A$ngINgFG-0SRqEj>|$hMW?^Mx=iubx1}fMpz`(@F%*@2X%*x8b
+z0#scKlxJWOWEE00bYv3_Ok`Io6ftU?xR68HY2!iBpo<?=jFXC*IJv~cB_yR()zmdK
+zwM<OS%q=XfoLyYq+&w(Kf<r>X!ht?cPDxEm&&bRwE-5W5uc)kQZfR|6@96BBG<nL@
+zY13!SoV952lBLU*uUNTi)8;K(w{73CbJwB6M~)sle&Xb*OP8-)y>|V^&07y2J$~}^
+k+4C1KUw!=a`ODXD-+%o4_5T(F2Po0nGiWU8f}{U80f%a#P5=M^
+
+literal 0
+HcmV?d00001
+
+diff --git a/xbmc/guilib/test/testdata/icc-p3.jpg b/xbmc/guilib/test/testdata/icc-p3.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d913d655e44d142bf85d8a8d48620f2af273ba5
+GIT binary patch
+literal 1272
+zcmbtTSxggA6g{()mV$v1#3d$H1O%grQWrFFp;ZJz6bh)Qi77)1m=^1_h?tltxPO7T
+ze~Bylq2i8yD2nSBii)67aYKzCh>9y2?`sq5M@@{}$-H-Rmox92nNc6A&k&xTl9mFF
+z130>%KIaS4%;qJTmbocu8MC|vKF1+D-Qo<uS>jPFvrUEtc?%8NcfJWwSY@{>IWseZ
+z;lR=JfUyHDV;EQ9p1)>83T$qf4ydD!X|hZ45KbkWQRZ<myp3?ATx2aETt|4cLI)&#
+zkLB}y_zlB_KKzqmCC6e0_;A98!as2SA6PC@oYXUxdSaZ8QaXb-n37OiNp3dn(R2^R
+zOccWn7aXvn90p{<NNYSiuu<NF1oAHMJmVgUIao&hGOaF}SBR|;MKm{>vZcgequow<
+z8(j{RGyiFh!tblwZcOy1xKI<Id7`QxV*zaq&|9UdKWbIAcOM`;1}>NQ=PREAQ!lBi
+zdeNVYPXeS6;AVqAmwpMTp9JU|Tvo;EeU3mYZ?^;8hk<^1Ktwau7x_G+8mr@2B#`wU
+zFt-9H4ghh~AGTP11T%eFeG5j?HwKzkFGJFixdwrgz)PGUacUEW(Z{3laWfGtI9?Dn
+zL0Vm~K7<<1goEb<ffoghMii;Kn(7cGP5<HJl7k|$tlH@1k%?=oYjq<`^^F58ce-MX
+z`AS8wK5F2g!9!x>M#d+M8b4v;q@>AH%rj@D%uY>9&(6u6H=hib3vBknqT;1)Pw9%X
+zmF24{*R9{Mant54TWhv$-?4Mo?mheVA2@jEaNUukCr_O|bN1Z%h6`7&HeI`Z<L0f~
+zcU$h=f6)4{t-a&<i<hrncfNW1?nC#-PoI0feEs&F>Ea;#wk)77GJ)eoQ4qCE7sr<|
+z;gYBsJ}#(#a+cP*JR&-AtuE43U0dH6Ji=({8j!Et(MQFM?}+`tq<NM7o3M)iQubSz
+gUspRq1&&^xAYnS1k9WFztMv5m?d8`5*uvDdUmmYBdH?_b
+
+literal 0
+HcmV?d00001
+
+diff --git a/xbmc/guilib/test/testdata/icc-srgb-lut.jpg b/xbmc/guilib/test/testdata/icc-srgb-lut.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..4d672d841f7275d9c2eb84f92a39eda56affdaae
+GIT binary patch
+literal 1580
+zcmbtUTTB#Z6#nM2ENr*p!g^^#(oq+R#wO(^wlQsYS3!_eSfG`nX?BObwd}IaE?v<y
+zL2DI#LQ(MYP|;RxUmDt?ZJ$)AqDdR9h=Rrxd%^l77wIizdj8qUng(N2&Sd6%bIy0p
+z`M>|4UG=*917;T&6cvEu0FExGw}k^mcKe&9j<p3vC9AZA&{Qi2!s07HAQ({`g*Itj
+z)f<xjZma@iPB|R1mX?+<JiSfyv+lr^=UA`lIggAQYusU(7HB3$L=Gtt!cBxrqLC28
+zeT2=j&sjtG4&kK=EfC-t-|ULvOoqKNyn<n+!eJ*)DPhU`5OzI;WuFotPKY=bYqsrq
+z!utr12WsnSJ(@99Mt88Xocubv(-4LOg|I<F6n;eDBjlu8fg3d%4r<<oTGUfaqKYUn
+zLUj2NgqI>Es6++%OsaQNK7z%Mm`Q7*nXjUb*fKpsXrM`c>f)oSr4+5FdN#$Qt-wuF
+z8`$|#9a;Qb!k(OLEyNjZfbN#6j-><o7GSbjRsU*N)yboPa1%HajMvv40hZsVcyl~v
+z`2a}X4xH+W$6Rf|>7Bs*fsj*iYI6j7@*WQ`dIET|3P|k*4ArqcryR@U*fpSH3mx^h
+zz`;X62Jw^E2dp-UWd)6cZifG{M)K0*X3R9t^ZbK(nvcKb_oi*;da~A3cN+u#v`sI~
+z%1c?RKUeK6mMkkaEU_P!cX+?s@^&Nqty61Y9XQ}|@9GWM>E}2zV@+n(fvVLrFeTCl
+zB?+7fyonP`oZ5|NNQExe`@!CDyddfl^odD^Cy3BF8$2fnyeQ~&qDbs_DG$-4OIeU*
+zO-L<s>KAS_XK&rpp18=?adwX5@;ytAOWBrWm^*L&Q%|R7Je#?ANp9Y<{N*paXkWRi
+zpm23jad}1MYp>HsCfB$<UZ4N1aHRg7=%$9v?`?m7$Ihl*yZ5&2+uz!D;NYR7$3Fb%
+z_=%GrfAZPqUv!>2{pD9*pX=)W=KO`8i<iE?(s#B0+Vz3Kq1!+H^z$#ncYeJ)GCDSX
+zf8w{_|M-*X;vh_ISxni#bkQboyeJByp6TNFDBXfd)Gf$LNU@gbof}gZW^YY2+xE0~
+zoK0Gk<G44+rCc`5wd4+^k1%PPvi~M*+y7EFB`mIM5JrKc!xKz+8NHtlhbNm2^lx*7
+LZ=A*@s{?-nI6!3a
+
+literal 0
+HcmV?d00001
+
+diff --git a/xbmc/guilib/test/testdata/icc-srgb-v2.jpg b/xbmc/guilib/test/testdata/icc-srgb-v2.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..163adbc94e1afa78e39a1ebf69cf6f4e0128bbce
+GIT binary patch
+literal 9496
+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
+I)UBug1-^g`MgRZ+
+
+literal 0
+HcmV?d00001
+
+diff --git a/xbmc/guilib/test/testdata/icc-srgb-v4.jpg b/xbmc/guilib/test/testdata/icc-srgb-v4.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..5ea925d93d3beb3e98c4196ed10e91263ccbe987
+GIT binary patch
+literal 1264
+zcmbtTNla5w6g__^Ed_%WP&6i%Q8bz;prRY4)nW-zEI6PhrY$YSFqGdSqA?L?jSCPJ
+zaU(eE#yFy`M4Y3Eh%#vm;DEA11e`*?_q7RiQ4=Hg=ihg7r~l4*@5^m+C&s23j0SKV
+zz|jM_n_q9#>o;VWmK%)eOFRiaJ>Od35*Gmlg>K1|s?)B?UaM91dOJX7wz`}t85!ve
+z`?sMMHXUf5$!7Vl`D-*N$L6xq231s%Y;{U*!ixx}m%5z{A0!-Rb(nJq*Aku~(FO@W
+zWpRracQTyo#RCjWStdQevzgl5Kd|KwY;{NlR1;4%F$MW0v<HtdCc(DCm6^0o_Pj2b
+zkP02N*n}kV@o>Wi7x`&_>6_*0TZSU4wvu<E3=;B?3kP-0plAv8+i0~@+(u76%9!rd
+zN9NPhWlv1-gt%ZGpm;0GUt<Af6);>O%fISmdH5tCyaDbM`udA%Ny<TrSNLKvCxDP$
+zz>P*<%u)^1?*$^-oo31G`Hn!Ix7&gKbHJEvAoMw)Ugy<{ax9Nitw7dRI-+Ml&2b=(
+z>O<Dcuc4<aH9BKMMmK@F<vY-*NL;PJX~1hZLBq-SFoiCS!aJLhV8-!+s0dK10@XoO
+zaD6OzP7rueP$)!^vfC&RQKJ|aIXfjFbcI<NRUDR3URkG#)?IE0H#POeBwC~$f$H%S
+zA|_6Xjhh-jZF<t2x$~0eFVHVuVn|(TOv}t#xoR~DZq2dTa~*jbUG9=irJKvP?A*0`
+z&)$9e4;-pGeB@~Lv6|y2Pn|w<_T2dk7q48scKt^E&0DwcHr~7c;NhdkPhK>?eAUw0
+z*51+8{qFsTk3FA0_kQXBIxsl&?fZ|Pj28!CL^8j;NCb`-ML|?DUL0S_h-*Ye<m`ZP
+zDJzub;?Sssa#fhFvhH$2V05CXFWe$EsmI48b;W*R)I7}ojo6O=Vm3m|$EyRu0!N1@
+YXs{5^FZH;FE7bJo)$-f@EFp6HZyw7p)Bpeg
+
+literal 0
+HcmV?d00001
+
+diff --git a/xbmc/guilib/test/testdata/icc-untagged.jpg b/xbmc/guilib/test/testdata/icc-untagged.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..304be77af6c40b05f8549a7672b422b705e05f63
+GIT binary patch
+literal 658
+zcmex=<NpH&0WUXCHwH#V1_nkTWcYuZ!5PS-41f%w%mkqB{|6WZIT#ce6qp$W8JGka
+znFSgDA7PLOx|0=RHUkteGBLBTvaxe;a&ZF{Y!zT&Vq|7!Vqs=wWnlrTt_8|7un4jW
+zDH=Mm2?r*!D;0_uHBMZ}q3pErplHy=4=Tn<MNOPsV&W2#QmSg|8k$-rre@|AmR8O#
+zu5Rugo?gKrp<&?>kx|JhscGpMnOVgprDf$6l~v6xt!?ccon4bAPnkMx`iz;g7A;<~
+zblLJ1D_3pWyk+aQ?K^hvI&}ER(PPI?oIG{u@|COCuHU$M>*1rvPo6$|{^I4UkDoq&
+z`TFhqkDtFl{$gZch6fqMV`%;Y1_C1!3kx#~JIG&*Oyxk#EXcyDXviky7|5PjD6C}E
+z$RXl1apA^;oXW;QA4HRiE^>*fm^@Vd2=W@(XT*7|i7cPNJ%;etEe0NDMquPI3o_U<
+XTv-3S`0oTR1`UP<Obu8l{{J@tD15@(
+
+literal 0
+HcmV?d00001
+
+-- 
+2.55.0
+
