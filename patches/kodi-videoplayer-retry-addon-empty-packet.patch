@@ -43,7 +43,7 @@ index 4a820f9fff..0847859981 100644
 +
 +namespace
 +{
-+// counted, not timed: an idle add-on answers in microseconds, a working one takes longer
++// an idle add-on answers in microseconds, so these cost little while a stream starves
 +constexpr int EMPTY_PACKET_RETRIES = 32;
 +// from entry, half the player's EMPTY_PACKET_GRACE, so a read that only retried never looks blocked
 +constexpr auto EMPTY_PACKET_RETRY_CAP = 500us;
