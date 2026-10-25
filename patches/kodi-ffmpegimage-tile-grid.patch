@@ -1,4 +1,4 @@
-From 4d8865d7883f34b80b0f344ece060e8fe15db96e Mon Sep 17 00:00:00 2001
+From 0eff77e9ae42d46cf84e8029b349840b6f52f80f Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sat, 17 Oct 2026 17:05:56 +1000
 Subject: [PATCH 1/4] FFmpegImage: Decode the primary video stream
@@ -102,7 +102,7 @@ index c53280a001..92cf8d8da6 100644
    AVFrame* m_pFrame;
    uint8_t* m_outputBuffer;
 
-From 4643ef44188c316922d3f0c8801308166c752488 Mon Sep 17 00:00:00 2001
+From f86b86658265ddbe477e2f7954b4ec7a1ec4f18e Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sat, 17 Oct 2026 17:05:57 +1000
 Subject: [PATCH 2/4] FFmpegImage: Split frame decoding from the frame
@@ -226,7 +226,7 @@ index 92cf8d8da6..c3dc60d869 100644
    static int EncodeFFmpegFrame(AVCodecContext *avctx, AVPacket *pkt, int *got_packet, AVFrame *frame);
    static int DecodeFFmpegFrame(AVCodecContext *avctx, AVFrame *frame, int *got_frame, AVPacket *pkt);
 
-From a881e4756ce43e6035dbe470855fc6efaa6e5ff8 Mon Sep 17 00:00:00 2001
+From 2b2a68df651522bd55fb74ec4351b4f389952a00 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sat, 17 Oct 2026 17:05:57 +1000
 Subject: [PATCH 3/4] FFmpegImage: Composite HEIF and AVIF tile grids
@@ -240,17 +240,21 @@ Decode each tile of the primary grid with a decoder of its own, copy it
 into a canvas in the pixel format of the tiles, and crop the canvas as
 the grid says. A grid with missing tiles fails to load instead of
 showing black gaps. The grid geometry is checked against the coded size
-first, because the demuxer does not do it. Tiles at origins not aligned
-to the chroma subsampling are clamped to the plane, as libheif does.
+first, and the tiles' stream indices against the grid's streams, because
+the demuxer does neither. FFmpeg 7.x gives a tile's number there instead
+of its stream's, so with it a grid that uses a tile twice fails to load,
+and the tiles of an image overlay can be misplaced. Tiles at origins not
+aligned to the chroma subsampling are clamped to the plane, as libheif
+does.
 
 Assisted-by: Claude
 ---
- xbmc/guilib/FFmpegImage.cpp | 170 +++++++++++++++++++++++++++++++++++-
+ xbmc/guilib/FFmpegImage.cpp | 181 +++++++++++++++++++++++++++++++++++-
  xbmc/guilib/FFmpegImage.h   |   3 +
- 2 files changed, 171 insertions(+), 2 deletions(-)
+ 2 files changed, 182 insertions(+), 2 deletions(-)
 
 diff --git a/xbmc/guilib/FFmpegImage.cpp b/xbmc/guilib/FFmpegImage.cpp
-index 109c5556c1..f69543d78a 100644
+index 109c5556c1..8b969d3bdc 100644
 --- a/xbmc/guilib/FFmpegImage.cpp
 +++ b/xbmc/guilib/FFmpegImage.cpp
 @@ -57,6 +57,88 @@ unsigned int OrientationFromDisplayMatrix(const int32_t* displayMatrix)
@@ -377,7 +381,7 @@ index 109c5556c1..f69543d78a 100644
    if (!frame)
      return nullptr;
  
-@@ -439,6 +533,78 @@ AVFrame* CFFmpegImage::ExtractStreamFrame()
+@@ -439,6 +533,89 @@ AVFrame* CFFmpegImage::ExtractStreamFrame()
    return frame;
  }
  
@@ -395,6 +399,17 @@ index 109c5556c1..f69543d78a 100644
 +  {
 +    CLog::LogF(LOGERROR, "Invalid tile grid geometry");
 +    return nullptr;
++  }
++
++  // FFmpeg 7.x gives a tile's number here, not its stream's, so a tile used twice runs past them
++  for (unsigned int i = 0; i < grid->nb_tiles; ++i)
++  {
++    if (grid->offsets[i].idx >= m_tileGrid->nb_streams)
++    {
++      CLog::LogF(LOGERROR, "Tile {} refers to stream {} of {}", i, grid->offsets[i].idx,
++                 m_tileGrid->nb_streams);
++      return nullptr;
++    }
 +  }
 +
 +  AVPacket* pkt = av_packet_alloc();
@@ -485,7 +500,7 @@ index c3dc60d869..b8a67f1b26 100644
    AVFrame* m_pFrame;
    uint8_t* m_outputBuffer;
 
-From 03f98bb57230ef12221c9755fbb045f91b306523 Mon Sep 17 00:00:00 2001
+From 69ea9c9266e8b15b367119fe14e0a1d6896b86b6 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sat, 17 Oct 2026 17:05:57 +1000
 Subject: [PATCH 4/4] FFmpegImage: Apply the rotation of tile grids
@@ -504,7 +519,7 @@ Assisted-by: Claude
  1 file changed, 12 insertions(+)
 
 diff --git a/xbmc/guilib/FFmpegImage.cpp b/xbmc/guilib/FFmpegImage.cpp
-index f69543d78a..e12079d3e8 100644
+index 8b969d3bdc..9fec70c521 100644
 --- a/xbmc/guilib/FFmpegImage.cpp
 +++ b/xbmc/guilib/FFmpegImage.cpp
 @@ -19,6 +19,7 @@
@@ -515,7 +530,7 @@ index f69543d78a..e12079d3e8 100644
  
  extern "C"
  {
-@@ -602,6 +603,17 @@ AVFrame* CFFmpegImage::ExtractTileGridFrame()
+@@ -613,6 +614,17 @@ AVFrame* CFFmpegImage::ExtractTileGridFrame()
      return nullptr;
    }
  
