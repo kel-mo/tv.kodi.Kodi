@@ -1,4 +1,4 @@
-From c6feddb6b64e1ae70e0248b366784543d46935db Mon Sep 17 00:00:00 2001
+From 20b8823c65ce89c699468f0181f8436ad7298dac Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Thu, 22 Oct 2026 23:43:16 +1000
 Subject: [PATCH] FFmpegImage: Convert pictures with an ICC profile to sRGB
@@ -22,34 +22,36 @@ written by tools/testdata/mkicc.py.
 
 Assisted-by: Claude
 ---
- cmake/installdata/test-reference-data.txt     |   7 +
- tools/testdata/mkicc.py                       | 179 +++++++++++++++
+ cmake/installdata/test-reference-data.txt     |   8 +
+ tools/testdata/mkicc.py                       | 187 +++++++++++++++
  xbmc/guilib/FFmpegImage.cpp                   | 133 +++++++++++
  xbmc/guilib/test/CMakeLists.txt               |   3 +-
- xbmc/guilib/test/TestFFmpegImage.cpp          | 207 ++++++++++++++++++
+ xbmc/guilib/test/TestFFmpegImage.cpp          | 215 ++++++++++++++++++
  .../test/testdata/icc-gray-untagged.jpg       | Bin 0 -> 342 bytes
  xbmc/guilib/test/testdata/icc-gray.jpg        | Bin 0 -> 724 bytes
  xbmc/guilib/test/testdata/icc-p3.jpg          | Bin 0 -> 1272 bytes
  xbmc/guilib/test/testdata/icc-srgb-lut.jpg    | Bin 0 -> 1580 bytes
+ xbmc/guilib/test/testdata/icc-srgb-notch.jpg  | Bin 0 -> 9544 bytes
  xbmc/guilib/test/testdata/icc-srgb-v2.jpg     | Bin 0 -> 9496 bytes
  xbmc/guilib/test/testdata/icc-srgb-v4.jpg     | Bin 0 -> 1264 bytes
  xbmc/guilib/test/testdata/icc-untagged.jpg    | Bin 0 -> 658 bytes
- 12 files changed, 528 insertions(+), 1 deletion(-)
+ 13 files changed, 545 insertions(+), 1 deletion(-)
  create mode 100644 tools/testdata/mkicc.py
  create mode 100644 xbmc/guilib/test/TestFFmpegImage.cpp
  create mode 100644 xbmc/guilib/test/testdata/icc-gray-untagged.jpg
  create mode 100644 xbmc/guilib/test/testdata/icc-gray.jpg
  create mode 100644 xbmc/guilib/test/testdata/icc-p3.jpg
  create mode 100644 xbmc/guilib/test/testdata/icc-srgb-lut.jpg
+ create mode 100644 xbmc/guilib/test/testdata/icc-srgb-notch.jpg
  create mode 100644 xbmc/guilib/test/testdata/icc-srgb-v2.jpg
  create mode 100644 xbmc/guilib/test/testdata/icc-srgb-v4.jpg
  create mode 100644 xbmc/guilib/test/testdata/icc-untagged.jpg
 
 diff --git a/cmake/installdata/test-reference-data.txt b/cmake/installdata/test-reference-data.txt
-index f89eef7950..fca4ace4b7 100644
+index f89eef7950..9be0f40ce9 100644
 --- a/cmake/installdata/test-reference-data.txt
 +++ b/cmake/installdata/test-reference-data.txt
-@@ -44,6 +44,13 @@ xbmc/filesystem/test/dummy64.zip
+@@ -44,6 +44,14 @@ xbmc/filesystem/test/dummy64.zip
  xbmc/filesystem/test/refRARnormal.rar
  xbmc/filesystem/test/refRARstored.rar
  xbmc/games/addons/cheats/test/game.cht.zip
@@ -57,6 +59,7 @@ index f89eef7950..fca4ace4b7 100644
 +xbmc/guilib/test/testdata/icc-gray.jpg
 +xbmc/guilib/test/testdata/icc-p3.jpg
 +xbmc/guilib/test/testdata/icc-srgb-lut.jpg
++xbmc/guilib/test/testdata/icc-srgb-notch.jpg
 +xbmc/guilib/test/testdata/icc-srgb-v2.jpg
 +xbmc/guilib/test/testdata/icc-srgb-v4.jpg
 +xbmc/guilib/test/testdata/icc-untagged.jpg
@@ -65,10 +68,10 @@ index f89eef7950..fca4ace4b7 100644
  xbmc/network/test/data/test.html
 diff --git a/tools/testdata/mkicc.py b/tools/testdata/mkicc.py
 new file mode 100644
-index 0000000000..c114878733
+index 0000000000..b35475a3ed
 --- /dev/null
 +++ b/tools/testdata/mkicc.py
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,187 @@
 +#!/usr/bin/env python3
 +#
 +#  Copyright (C) 2026 Team Kodi
@@ -154,12 +157,16 @@ index 0000000000..c114878733
 +    return lcms.cmsBuildParametricToneCurve(None, 4, params)
 +
 +
-+def srgb_table(entries: int):
-+    """The sRGB transfer function sampled into a table, as v2 profiles carry it."""
++def srgb_table(entries: int, notch=None):
++    """The sRGB transfer function sampled into a table, as v2 profiles carry it. notch is an
++    (entry, value) pair that gives one entry the curve's value at another, in table steps."""
 +    def eotf(v: float) -> float:
 +        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
 +
-+    table = (ctypes.c_float * entries)(*[eotf(i / (entries - 1)) for i in range(entries)])
++    values = [eotf(i / (entries - 1)) for i in range(entries)]
++    if notch:
++        values[notch[0]] = eotf(notch[1] / (entries - 1))
++    table = (ctypes.c_float * entries)(*values)
 +    return lcms.cmsBuildTabulatedToneCurveFloat(None, entries, table)
 +
 +
@@ -225,11 +232,15 @@ index 0000000000..c114878733
 +    gray = Image.new("L", (SIZE, SIZE), GRAY)
 +    srgb_v2 = rgb_profile(SRGB, srgb_table(1024))
 +    lcms.cmsSetProfileVersion(srgb_v2, 2.1)
++    # code 100 shows as 110, between the points a coarser check of the curve would sample
++    srgb_notch = rgb_profile(SRGB, srgb_table(256, notch=(100, 110)))
++    lcms.cmsSetProfileVersion(srgb_notch, 2.1)
 +    return (
 +        ("untagged", rgb, None),
 +        ("p3", rgb, save(rgb_profile(DISPLAY_P3, srgb_curve()), "Display P3 (test)")),
 +        ("srgb-v4", rgb, save(lcms.cmsCreate_sRGBProfile(), "sRGB v4 (test)")),
 +        ("srgb-v2", rgb, save(srgb_v2, "sRGB v2 table (test)")),
++        ("srgb-notch", rgb, save(srgb_notch, "sRGB v2 table, code 100 as 110 (test)")),
 +        ("srgb-lut", rgb, save(lut_profile(), "sRGB with a red and blue swapping LUT (test)")),
 +        ("gray-untagged", gray, None),
 +        ("gray", gray, save(gray_profile(2.2), "Gray gamma 2.2 (test)")),
@@ -249,7 +260,7 @@ index 0000000000..c114878733
 +if __name__ == "__main__":
 +    main()
 diff --git a/xbmc/guilib/FFmpegImage.cpp b/xbmc/guilib/FFmpegImage.cpp
-index e12079d3e8..be4c821726 100644
+index 9fec70c521..393d8c4aa0 100644
 --- a/xbmc/guilib/FFmpegImage.cpp
 +++ b/xbmc/guilib/FFmpegImage.cpp
 @@ -20,6 +20,12 @@
@@ -276,7 +287,7 @@ index e12079d3e8..be4c821726 100644
 +// how far colorants (XYZ) and tone curves may be from sRGB's for a profile to count as sRGB
 +constexpr double SRGB_COLORANT_TOLERANCE = 0.002;
 +constexpr float SRGB_CURVE_TOLERANCE = 1.0f / 255;
-+constexpr int SRGB_CURVE_SAMPLES = 16;
++constexpr int SRGB_CURVE_SAMPLES = 255;
 +
 +using ColorProfile = std::unique_ptr<void, decltype(&cmsCloseProfile)>;
 +using ColorTransform = std::unique_ptr<void, decltype(&cmsDeleteTransform)>;
@@ -318,8 +329,8 @@ index e12079d3e8..be4c821726 100644
 +}
 +
 +// a matrix/curve profile with sRGB's colorants and tone curves, so the pixels are already sRGB.
-+// Tone curves are sampled, as v2 profiles store them as tables and v4 ones as parameters, and
-+// compared once encoded as sRGB, so within a code value or so.
++// Tone curves are sampled at every 8-bit code value, as v2 profiles store them as tables and v4
++// ones as parameters, and compared once encoded as sRGB, so within a code value or so.
 +bool IsSRGB(cmsHPROFILE profile, cmsHPROFILE srgb)
 +{
 +  // lcms2 converts with the profile's LUT rather than its matrix and curves when it has one
@@ -395,7 +406,7 @@ index e12079d3e8..be4c821726 100644
  } // namespace
  
  Frame::Frame(const Frame& src) :
-@@ -783,6 +912,10 @@ bool CFFmpegImage::DecodeFrame(AVFrame* frame, unsigned int width, unsigned int
+@@ -794,6 +923,10 @@ bool CFFmpegImage::DecodeFrame(AVFrame* frame, unsigned int width, unsigned int
      pictureRGB->data, pictureRGB->linesize);
    sws_freeContext(context);
  
@@ -419,10 +430,10 @@ index 8693942eee..e5a0d8ff1d 100644
              TestGUIFixedListContainer.cpp
 diff --git a/xbmc/guilib/test/TestFFmpegImage.cpp b/xbmc/guilib/test/TestFFmpegImage.cpp
 new file mode 100644
-index 0000000000..efb6d9415f
+index 0000000000..2a6fcbaeeb
 --- /dev/null
 +++ b/xbmc/guilib/test/TestFFmpegImage.cpp
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,215 @@
 +/*
 + *  Copyright (C) 2026 Team Kodi
 + *  This file is part of Kodi - https://kodi.tv
@@ -607,6 +618,14 @@ index 0000000000..efb6d9415f
 +  ExpectBGRA(pixels.At(SIZE / 2, SIZE / 2), 200, 100, 100);
 +}
 +
++TEST(TestFFmpegImage, CurveIsCheckedAtEveryCodeValue)
++{
++  // sRGB but for code value 100, which shows as 110 and falls between coarser samples
++  const Pixels pixels{Decode("icc-srgb-notch.jpg")};
++  ASSERT_TRUE(pixels.data);
++  ExpectBGRA(pixels.At(SIZE / 2, SIZE / 2), 110, 110, 200);
++}
++
 +TEST(TestFFmpegImage, ConversionFollowsTheRowStride)
 +{
 +  // 30 pixels wide gives rows of 120 bytes, padded to a wider stride inside the decoder
@@ -711,6 +730,187 @@ z_=%GrfAZPqUv!>2{pD9*pX=)W=KO`8i<iE?(s#B0+Vz3Kq1!+H^z$#ncYeJ)GCDSX
 zf8w{_|M-*X;vh_ISxni#bkQboyeJByp6TNFDBXfd)Gf$LNU@gbof}gZW^YY2+xE0~
 zoK0Gk<G44+rCc`5wd4+^k1%PPvi~M*+y7EFB`mIM5JrKc!xKz+8NHtlhbNm2^lx*7
 LZ=A*@s{?-nI6!3a
+
+literal 0
+HcmV?d00001
+
+diff --git a/xbmc/guilib/test/testdata/icc-srgb-notch.jpg b/xbmc/guilib/test/testdata/icc-srgb-notch.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..81fbdc026829871315e43b98b49e69c43389398b
+GIT binary patch
+literal 9544
+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
 
 literal 0
 HcmV?d00001
