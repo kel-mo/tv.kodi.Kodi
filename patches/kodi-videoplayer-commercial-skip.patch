@@ -1,0 +1,313 @@
+From ef1a0902a9368bbbf2cc961c49eb5e76bd1ef763 Mon Sep 17 00:00:00 2001
+From: ksooo <kai.sommerfeld@gmx.com>
+Date: Sun, 25 Oct 2026 15:31:40 +0100
+Subject: [PATCH 1/3] [VideoPlayer] Detect EDL edits on the current time, not
+ the last play state
+
+CheckAutoSceneSkip() read the time from m_State, which the player loop
+refreshes only every 200 ms, so up to that much of a commercial break
+was shown before it was skipped. Advance that time by what the clock
+moved since the refresh.
+---
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp | 24 ++++++++++++++++++------
+ xbmc/cores/VideoPlayer/VideoPlayer.h   |  2 ++
+ 2 files changed, 20 insertions(+), 6 deletions(-)
+
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+index ede6cce04f..ef2c907b54 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+@@ -2811,7 +2811,12 @@ void CVideoPlayer::CheckAutoSceneSkip()
+       m_CurrentVideo.inited == false)
+     return;
+ 
+-  const std::chrono::milliseconds clock{GetTime()};
++  // m_State.time is refreshed only every 200 ms, so up to that much of a break would be shown
++  // before skipping it. Advance it by what the clock moved since, unless a seek lies in between.
++  std::chrono::milliseconds clock{GetTime()};
++  const double elapsed{GetCaughtUpClock() - m_stateClock};
++  if (elapsed > 0 && elapsed < DVD_MSEC_TO_TIME(1000))
++    clock += std::chrono::milliseconds{llrint(DVD_TIME_TO_MSEC(elapsed))};
+ 
+   const std::chrono::milliseconds correctClock = m_Edl.GetTimeAfterRestoringCuts(clock);
+   const auto hasEdit = m_Edl.InEdit(correctClock);
+@@ -3497,6 +3502,7 @@ void CVideoPlayer::HandleMessages()
+           offset = -1000;
+         m_State.time += offset;
+         m_State.timestamp = m_clock.GetAbsoluteClock();
++        m_stateClock = GetCaughtUpClock();
+       }
+ 
+       if (speed != DVD_PLAYSPEED_PAUSE && m_playSpeed != DVD_PLAYSPEED_PAUSE && speed != m_playSpeed)
+@@ -5742,11 +5748,7 @@ void CVideoPlayer::UpdatePlayState(double timeout)
+       chapterNbEnabled = true;
+     }
+ 
+-    state.time = DVD_TIME_TO_MSEC(m_clock.GetClock());
+-    // Let the clock catch up after seek
+-    if (m_CurrentVideo.startpts != DVD_NOPTS_VALUE &&
+-        state.time < DVD_TIME_TO_MSEC(m_CurrentVideo.startpts))
+-      state.time = DVD_TIME_TO_MSEC(m_CurrentVideo.startpts);
++    state.time = DVD_TIME_TO_MSEC(GetCaughtUpClock());
+ 
+     state.timeMax = static_cast<double>(rawStreamLength.count());
+   }
+@@ -5949,6 +5951,16 @@ void CVideoPlayer::UpdatePlayState(double timeout)
+ 
+   std::unique_lock lock(m_StateSection);
+   m_State = state;
++  m_stateClock = GetCaughtUpClock();
++}
++
++double CVideoPlayer::GetCaughtUpClock()
++{
++  // Let the clock catch up after seek
++  const double clock{m_clock.GetClock()};
++  if (m_CurrentVideo.startpts != DVD_NOPTS_VALUE && clock < m_CurrentVideo.startpts)
++    return m_CurrentVideo.startpts;
++  return clock;
+ }
+ 
+ bool CVideoPlayer::CanTempo()
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.h b/xbmc/cores/VideoPlayer/VideoPlayer.h
+index 6908386dbe..7452de09a9 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.h
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.h
+@@ -520,6 +520,7 @@ protected:
+   void UpdateHasVideoAudio();
+ 
+   void UpdatePlayState(double timeout);
++  double GetCaughtUpClock();
+   void GetGeneralInfo(std::string& strVideoInfo);
+   int64_t GetUpdatedTime();
+   int64_t GetTime() const;
+@@ -666,6 +667,7 @@ protected:
+   } m_dvd;
+ 
+   SPlayerState m_State;
++  double m_stateClock{0.0}; // GetCaughtUpClock() when m_State.time was set
+   mutable CCriticalSection m_StateSection;
+   XbmcThreads::EndTime<> m_syncTimer;
+ 
+-- 
+2.55.0
+
+
+From ebbc2b9c4176c89d12fba608b4b80b8fe6292dfb Mon Sep 17 00:00:00 2001
+From: ksooo <kai.sommerfeld@gmx.com>
+Date: Sun, 25 Oct 2026 15:31:41 +0100
+Subject: [PATCH 2/3] [VideoPlayer] Drop all pictures before the target of an
+ accurate seek
+
+VideoPlayer drops the packets before the target, but decoders apply the
+drop flag to the pictures they output rather than to the packets they
+were decoded from. A decoder with latency, like FFmpeg with frame
+threads or MediaCodec, therefore still output pictures of dropped
+packets, so skipping a commercial break showed up to half a second of
+its end. A picture without a timestamp must not end the dropping, as
+it would report the stream as started without a start time.
+---
+ xbmc/cores/VideoPlayer/VideoPlayerVideo.cpp | 52 +++++++++++++++++++++
+ xbmc/cores/VideoPlayer/VideoPlayerVideo.h   |  7 +++
+ 2 files changed, 59 insertions(+)
+
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayerVideo.cpp b/xbmc/cores/VideoPlayer/VideoPlayerVideo.cpp
+index 94e97dd2e0..c8f609f4ab 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayerVideo.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayerVideo.cpp
+@@ -23,6 +23,7 @@
+ #include "windowing/GraphicContext.h"
+ #include "windowing/WinSystem.h"
+ 
++#include <algorithm>
+ #include <iomanip>
+ #include <iterator>
+ #include <memory>
+@@ -236,9 +237,18 @@ void CVideoPlayerVideo::OpenStream(CDVDStreamInfo& hint, std::unique_ptr<CDVDVid
+   m_rewindStalled = false;
+   m_packets.clear();
+   m_syncState = IDVDStreamPlayer::SYNC_STARTING;
++  ResetSeekDrop();
+   m_renderManager.ShowVideo(false);
+ }
+ 
++void CVideoPlayerVideo::ResetSeekDrop()
++{
++  m_awaitingFirstKeptPacket = true;
++  m_seekDropping = false;
++  m_seekDropBeforePts = DVD_NOPTS_VALUE;
++  m_seekDroppedPictures = 0;
++}
++
+ void CVideoPlayerVideo::CloseStream(bool bWaitForBuffers)
+ {
+   // wait until buffers are empty
+@@ -470,6 +480,7 @@ void CVideoPlayerVideo::Process()
+       m_packets.clear();
+       pts = 0;
+       m_rewindStalled = false;
++      ResetSeekDrop();
+ 
+       m_ptsTracker.Flush();
+       //we need to recalculate the framerate
+@@ -543,6 +554,26 @@ void CVideoPlayerVideo::Process()
+       DemuxPacket* pPacket = std::static_pointer_cast<CDVDMsgDemuxerPacket>(pMsg)->GetPacket();
+       bool bPacketDrop = std::static_pointer_cast<CDVDMsgDemuxerPacket>(pMsg)->GetPacketDrop();
+ 
++      // After a flush, VideoPlayer drops the packets before the target of an accurate seek.
++      // Decoders apply the drop flag to the pictures they output rather than to the packets
++      // they were decoded from, so a decoder with latency still outputs some of them.
++      if (m_awaitingFirstKeptPacket)
++      {
++        if (bPacketDrop)
++        {
++          m_seekDropping = true;
++        }
++        else
++        {
++          m_awaitingFirstKeptPacket = false;
++          if (m_seekDropping)
++          {
++            m_seekDropping = false;
++            m_seekDropBeforePts = pPacket->dts != DVD_NOPTS_VALUE ? pPacket->dts : pPacket->pts;
++          }
++        }
++      }
++
+       if (m_stalled)
+       {
+         CLog::Log(LOGDEBUG, "CVideoPlayerVideo - Stillframe left, switching to normal playback");
+@@ -746,6 +777,27 @@ bool CVideoPlayerVideo::ProcessDecoderOutput(double &frametime, double &pts)
+       pts = m_picture.pts;
+     }
+ 
++    // Drop the pictures before the first kept packet. Pictures output while packets are still
++    // being dropped all stem from dropped packets. A picture without a timestamp must not end
++    // this either, as it would report the stream as started without a start time.
++    if (m_seekDropping || m_seekDropBeforePts != DVD_NOPTS_VALUE)
++    {
++      constexpr int MAX_SEEK_DROPPED_PICTURES = 250;
++      const bool before = m_seekDropping || !hasTimestamp || m_picture.pts < m_seekDropBeforePts;
++      if (before && ++m_seekDroppedPictures <= MAX_SEEK_DROPPED_PICTURES)
++      {
++        m_picture.iFlags |= DVP_FLAG_DROPPED;
++      }
++      else
++      {
++        CLog::Log(LOGDEBUG, "CVideoPlayerVideo - dropped {} pictures before the seek target {:f}",
++                  std::min(m_seekDroppedPictures, MAX_SEEK_DROPPED_PICTURES), m_picture.pts);
++        m_awaitingFirstKeptPacket = false;
++        m_seekDropping = false;
++        m_seekDropBeforePts = DVD_NOPTS_VALUE;
++      }
++    }
++
+     double extraDelay = 0.0;
+     if (m_picture.iRepeatPicture)
+     {
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayerVideo.h b/xbmc/cores/VideoPlayer/VideoPlayerVideo.h
+index 3368212d36..1cf373abe2 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayerVideo.h
++++ b/xbmc/cores/VideoPlayer/VideoPlayerVideo.h
+@@ -105,6 +105,7 @@ protected:
+   void ResetFrameRateCalc();
+   void CalcFrameRate();
+   int CalcDropRequirement(double pts);
++  void ResetSeekDrop();
+ 
+   double m_iSubtitleDelay;
+ 
+@@ -130,6 +131,12 @@ protected:
+   IDVDStreamPlayer::ESyncState m_syncState;
+   std::atomic_bool m_bAbortOutput;
+ 
++  // Pictures of packets dropped to reach a seek target, see ProcessDecoderOutput()
++  bool m_awaitingFirstKeptPacket{true};
++  bool m_seekDropping{false};
++  double m_seekDropBeforePts{DVD_NOPTS_VALUE};
++  int m_seekDroppedPictures{0};
++
+   BitstreamStats m_videoStats;
+ 
+   CDVDMessageQueue m_messageQueue;
+-- 
+2.55.0
+
+
+From 64739d4991e06d6a0bdff46d2f436e68142c2de7 Mon Sep 17 00:00:00 2001
+From: ksooo <kai.sommerfeld@gmx.com>
+Date: Sun, 25 Oct 2026 15:31:41 +0100
+Subject: [PATCH 3/3] [VideoPlayer] Skip commercial breaks ahead by the display
+ latency
+
+The renderer shows pictures ahead of the clock by its display latency,
+and the picture on screen when a skip starts stays there until the seek
+is done. Skipping once the clock reached a break therefore showed its
+first picture for the duration of the seek.
+---
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp        | 23 ++++++++++++++++++-
+ .../VideoRenderers/RenderManager.h            |  7 +++++-
+ 2 files changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+index ef2c907b54..d3e99e042a 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+@@ -2819,7 +2819,28 @@ void CVideoPlayer::CheckAutoSceneSkip()
+     clock += std::chrono::milliseconds{llrint(DVD_TIME_TO_MSEC(elapsed))};
+ 
+   const std::chrono::milliseconds correctClock = m_Edl.GetTimeAfterRestoringCuts(clock);
+-  const auto hasEdit = m_Edl.InEdit(correctClock);
++  auto hasEdit = m_Edl.InEdit(correctClock);
++
++  // The renderer shows pictures ahead of the clock by its display latency, and the picture on
++  // screen when a skip starts stays there until the seek is done. Skip a commercial break that
++  // early, plus a margin for the time the skip takes to reach the renderer.
++  if (!hasEdit && m_playSpeed == DVD_PLAYSPEED_NORMAL && m_SkipCommercials)
++  {
++    constexpr std::chrono::milliseconds SKIP_MARGIN{100};
++    const std::chrono::milliseconds lead{
++        std::max(0ll, llrint(DVD_TIME_TO_MSEC(m_renderManager.GetDisplayLatency()))) +
++        SKIP_MARGIN.count()};
++    auto ahead = m_Edl.InEdit(correctClock + lead);
++    if (ahead && ahead.value()->action == EDL::Action::COMM_BREAK)
++    {
++      if (m_Edl.GetLastEditTime() != m_Edl.GetNextPlayableTime(ahead.value()->end))
++        CLog::Log(LOGDEBUG, "{} - Commercial break [{}] is less than {} ms ahead of the clock.",
++                  __FUNCTION__, StringUtils::MillisecondsToTimeString(ahead.value()->start),
++                  lead.count());
++      hasEdit = std::move(ahead);
++    }
++  }
++
+   if (!hasEdit)
+   {
+     // @note: Users are allowed to jump back into EDL commercial breaks
+diff --git a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
+index d54a344b97..91a3fb1ab0 100644
+--- a/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
++++ b/xbmc/cores/VideoPlayer/VideoRenderers/RenderManager.h
+@@ -139,6 +139,11 @@ public:
+   void SetDelay(int delay) { m_videoDelay = delay; }
+   int GetDelay() { return m_videoDelay; }
+ 
++  /*!
++   * \brief How far ahead of the clock the picture on screen is, in DVD clock units.
++   */
++  double GetDisplayLatency() const { return m_displayLatency; }
++
+   void SetVideoSettings(const CVideoSettings& settings);
+ 
+ protected:
+@@ -206,7 +211,7 @@ protected:
+   /// in milliseconds
+   double m_latencyTweak = 0.0;
+   /// Display latency updated in PrepareNextRender in DVD clock units, includes m_latencyTweak
+-  double m_displayLatency = 0.0;
++  std::atomic<double> m_displayLatency = 0.0;
+   std::atomic_int m_videoDelay = {};
+ 
+   int m_QueueSize = 2;
+-- 
+2.55.0
+

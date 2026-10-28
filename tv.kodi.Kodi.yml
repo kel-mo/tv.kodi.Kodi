@@ -814,6 +814,8 @@ modules:
         path: patches/kodi-app-stop-drop-sleep.patch
       - type: patch
         path: patches/kodi-pvr-manager-stop-wake.patch
+      - type: patch
+        path: patches/kodi-videoplayer-commercial-skip.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
