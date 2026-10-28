@@ -769,7 +769,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/xbmc/xbmc.git
-        commit: 81882add7001a7da204c47ceaf1de65ae7b3f549
+        commit: 7f485d6bcbc4cab4d1efb3d61a6fc750e2b631cc
         x-checker-data:
           type: git
           tag-pattern: ^(\d+\.\d+(?:\w+)?(?:-\w+)?)$
@@ -803,17 +803,13 @@ modules:
       - type: patch
         path: patches/kodi-videoplayer-subtitle-demux-disabled.patch
       - type: patch
-        path: patches/kodi-games-rumble-unplug.patch
-      - type: patch
-        path: patches/kodi-scripts-stop-in-parallel.patch
+        path: patches/kodi-scripts-abort-early.patch
       - type: patch
         path: patches/kodi-network-wsdiscovery-stop.patch
       - type: patch
         path: patches/kodi-ae-pipewire-drain-paused.patch
       - type: patch
         path: patches/kodi-app-stop-drop-sleep.patch
-      - type: patch
-        path: patches/kodi-pvr-manager-stop-wake.patch
       - type: patch
         path: patches/kodi-videoplayer-commercial-skip.patch
       - type: file

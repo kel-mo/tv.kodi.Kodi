@@ -1,0 +1,39 @@
+From 21864e92897be78a01709b114c701143ab059bcc Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Wed, 28 Oct 2026 22:21:49 +1000
+Subject: [PATCH] [application] Notify scripts of the abort right after
+ "Stopping all"
+
+Piers got #30058 through #30069 before the call was moved up on master.
+Move it to directly after the "Stopping all" log line, as on master, so
+scripts get their abort before the network services, SMB and VFS
+teardown.
+---
+ xbmc/application/Application.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/xbmc/application/Application.cpp b/xbmc/application/Application.cpp
+index 1cf64a9ec5..95c2bbfa2a 100644
+--- a/xbmc/application/Application.cpp
++++ b/xbmc/application/Application.cpp
+@@ -1901,6 +1901,8 @@ bool CApplication::Stop(int exitCode)
+     m_ExitCode = exitCode;
+     CLog::Log(LOGINFO, "Stopping all");
+ 
++    CScriptInvocationManager::GetInstance().NotifyAllScriptsAborting();
++
+     // Stop scanning before the job manager is cancelled below
+     // otherwise scans underway are not stopped
+     CMusicLibraryQueue::GetInstance().CancelAllJobs();
+@@ -1929,8 +1931,6 @@ bool CApplication::Stop(int exitCode)
+     smb.Deinit();
+ #endif
+ 
+-    CScriptInvocationManager::GetInstance().NotifyAllScriptsAborting();
+-
+     // Stop services before unloading Python
+     CServiceBroker::GetServiceAddons().Stop();
+ 
+-- 
+2.55.0
+
