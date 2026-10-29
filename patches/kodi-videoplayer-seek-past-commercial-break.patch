@@ -1,0 +1,101 @@
+From 40f98c53f11650ebe29a80aede96f7aab76211cb Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Thu, 29 Oct 2026 16:12:30 +1000
+Subject: [PATCH] [VideoPlayer] Seek past commercial breaks that are still to
+ be skipped
+
+A seek into an EDL commercial break shows the picture it lands on until
+CheckAutoSceneSkip() skips the break, which it only does once audio and
+video are in sync again. A 10 minute step that landed in a break showed
+an ad for up to about 0.3 s before the skip.
+
+When commercial breaks are skipped automatically and the break is still
+to be skipped, seek to the next playable point after it right away, as
+OpenFile() does for a start position in a break. The seek is accurate,
+like the automatic skip. A break at the end of the stream is still left
+to CheckAutoSceneSkip(), which ends playback there.
+---
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp | 49 ++++++++++++++++++++++++--
+ 1 file changed, 46 insertions(+), 3 deletions(-)
+
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+index 3e0a3aee1b..eee53aee6f 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+@@ -3157,6 +3157,49 @@ void CVideoPlayer::HandleMessages()
+                        .count()
+                  : time;
+ 
++      bool accurate = msg.GetAccurate();
++      bool backward = msg.GetBackward();
++
++      // Skip a commercial break now, CheckAutoSceneSkip() would show a picture of it first.
++      if (m_SkipCommercials && m_playSpeed >= 0 && !msg.GetTrickPlay())
++      {
++        const std::chrono::milliseconds target(std::lround(time));
++        const auto commEdit = m_Edl.InEdit(target);
++        if (commEdit && commEdit.value()->action == EDL::Action::COMM_BREAK &&
++            target < commEdit.value()->end - 1s)
++        {
++          const auto& edit = commEdit.value();
++          const std::chrono::milliseconds seek = m_Edl.GetNextPlayableTime(edit->end);
++          const auto streamLength{GetSourceStreamLength()};
++
++          // Leave a break at the end of the stream to CheckAutoSceneSkip(), which ends playback.
++          if (m_Edl.GetLastEditTime() != seek &&
++              (streamLength <= 0ms || seek + 50ms < streamLength))
++          {
++            CLog::Log(LOGDEBUG,
++                      "{} - Seek target {} is in commercial break [{} - {}]. Seeking to next "
++                      "playable point [{}] instead.",
++                      __FUNCTION__, StringUtils::MillisecondsToTimeString(target),
++                      StringUtils::MillisecondsToTimeString(edit->start),
++                      StringUtils::MillisecondsToTimeString(edit->end),
++                      StringUtils::MillisecondsToTimeString(seek));
++
++            CVariant announcement{StringUtils::SecondsToTimeString(
++                std::chrono::duration_cast<std::chrono::seconds>(edit->end - edit->start).count(),
++                TIME_FORMAT_MM_SS)};
++            CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "OnCommercial",
++                                                               announcement);
++
++            m_Edl.SetLastEditTime(seek);
++            m_Edl.SetLastEditActionType(EDL::Action::COMM_BREAK);
++
++            time = static_cast<double>(seek.count());
++            accurate = true;
++            backward = true;
++          }
++        }
++      }
++
+       // if input stream doesn't support ISeekTime, convert back to pts
+       //! @todo
+       //! After demuxer we add an offset to input pts so that displayed time and clock are
+@@ -3167,12 +3210,12 @@ void CVideoPlayer::HandleMessages()
+         time -= m_State.time_offset/1000l;
+ 
+       CLog::Log(LOGDEBUG, "demuxer seek to: {:f}", time);
+-      if (m_pDemuxer && m_pDemuxer->SeekTime(time, msg.GetBackward(), &start))
++      if (m_pDemuxer && m_pDemuxer->SeekTime(time, backward, &start))
+       {
+         CLog::Log(LOGDEBUG, "demuxer seek to: {:f}, success", time);
+         if(m_pSubtitleDemuxer)
+         {
+-          if(!m_pSubtitleDemuxer->SeekTime(time, msg.GetBackward()))
++          if (!m_pSubtitleDemuxer->SeekTime(time, backward))
+             CLog::Log(LOGDEBUG, "failed to seek subtitle demuxer: {:f}, success", time);
+         }
+         // dts after successful seek
+@@ -3182,7 +3225,7 @@ void CVideoPlayer::HandleMessages()
+         m_State.dts = start;
+         m_State.lastSeek = m_clock.GetAbsoluteClock();
+ 
+-        FlushBuffers(start, msg.GetAccurate(), msg.GetSync());
++        FlushBuffers(start, accurate, msg.GetSync());
+       }
+       else if (m_pDemuxer)
+       {
+-- 
+2.55.0
+

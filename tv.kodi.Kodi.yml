@@ -812,6 +812,8 @@ modules:
         path: patches/kodi-app-stop-drop-sleep.patch
       - type: patch
         path: patches/kodi-videoplayer-commercial-skip.patch
+      - type: patch
+        path: patches/kodi-videoplayer-seek-past-commercial-break.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
