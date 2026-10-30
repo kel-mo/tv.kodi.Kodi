@@ -1,4 +1,4 @@
-From 40f98c53f11650ebe29a80aede96f7aab76211cb Mon Sep 17 00:00:00 2001
+From d86b7d0bf4375d31726d62c1f19290680eeca406 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Thu, 29 Oct 2026 16:12:30 +1000
 Subject: [PATCH] [VideoPlayer] Seek past commercial breaks that are still to
@@ -14,15 +14,86 @@ to be skipped, seek to the next playable point after it right away, as
 OpenFile() does for a start position in a break. The seek is accurate,
 like the automatic skip. A break at the end of the stream is still left
 to CheckAutoSceneSkip(), which ends playback there.
+
+The OnCommercial announcement, the last edit and the end of stream check
+are shared with the automatic skip.
 ---
- xbmc/cores/VideoPlayer/VideoPlayer.cpp | 49 ++++++++++++++++++++++++--
- 1 file changed, 46 insertions(+), 3 deletions(-)
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp | 80 ++++++++++++++++++++------
+ xbmc/cores/VideoPlayer/VideoPlayer.h   |  2 +
+ 2 files changed, 63 insertions(+), 19 deletions(-)
 
 diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-index 3e0a3aee1b..eee53aee6f 100644
+index 3e0a3aee1b..5f99536096 100644
 --- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-@@ -3157,6 +3157,49 @@ void CVideoPlayer::HandleMessages()
+@@ -2751,18 +2751,21 @@ bool CVideoPlayer::CheckSceneSkip(const CCurrentStream& current)
+   return hasEdit && hasEdit.value()->action == EDL::Action::CUT;
+ }
+ 
+-void CVideoPlayer::QueueAutoSceneSkip(std::chrono::milliseconds seekTime)
++bool CVideoPlayer::IsNearStreamEnd(std::chrono::milliseconds time) const
+ {
++  // Cut/skip time arithmetic can produce a result fractionally past the true stream end due to
++  // millisecond rounding, which would cause the demuxer to stall rather than ending cleanly.
+   const auto streamLength{GetSourceStreamLength()};
++  return streamLength > 0ms && time + 50ms >= streamLength;
++}
+ 
+-  // Use the same 50ms tolerance as the chapter-seek EOF guard (see HandleMessages PLAYER_SEEK_CHAPTER):
+-  // cut/skip time arithmetic can produce a result fractionally past the true stream end due to
+-  // millisecond rounding, which would cause the demuxer to stall rather than ending cleanly.
+-  if (streamLength > 0ms && seekTime + 50ms >= streamLength)
++void CVideoPlayer::QueueAutoSceneSkip(std::chrono::milliseconds seekTime)
++{
++  if (IsNearStreamEnd(seekTime))
+   {
+     CLog::Log(LOGDEBUG, "{} - Resolved EDL skip target [{}] is at/near EOF [{}]. Ending playback.",
+               __FUNCTION__, StringUtils::MillisecondsToTimeString(seekTime),
+-              StringUtils::MillisecondsToTimeString(streamLength));
++              StringUtils::MillisecondsToTimeString(GetSourceStreamLength()));
+ 
+     SetCaching(CACHESTATE_DONE);
+ 
+@@ -2787,6 +2790,20 @@ void CVideoPlayer::QueueAutoSceneSkip(std::chrono::milliseconds seekTime)
+   m_messenger.Put(std::make_shared<CDVDMsgPlayerSeek>(mode));
+ }
+ 
++void CVideoPlayer::MarkCommBreakSkipped(const EDL::Edit& edit, std::chrono::milliseconds seekTime)
++{
++  CVariant announcement{StringUtils::SecondsToTimeString(
++      std::chrono::duration_cast<std::chrono::seconds>(edit.end - edit.start).count(),
++      TIME_FORMAT_MM_SS)};
++  CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "OnCommercial",
++                                                     announcement);
++
++  // use resolved seek target, not edit.start, to also suppress
++  // adjacent commercial breaks encountered while seeking
++  m_Edl.SetLastEditTime(seekTime);
++  m_Edl.SetLastEditActionType(EDL::Action::COMM_BREAK);
++}
++
+ void CVideoPlayer::CheckAutoSceneSkip()
+ {
+   if (!m_Edl.HasEdits())
+@@ -2895,16 +2912,7 @@ void CVideoPlayer::CheckAutoSceneSkip()
+     // total cut time grows.
+     if (m_playSpeed >= 0 && m_Edl.GetLastEditTime() != seek && correctClock < edit->end - 1s)
+     {
+-      CVariant announcement{StringUtils::SecondsToTimeString(
+-          std::chrono::duration_cast<std::chrono::seconds>(edit->end - edit->start).count(),
+-          TIME_FORMAT_MM_SS)};
+-      CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "OnCommercial",
+-                                                         announcement);
+-
+-      // use resolved seek target, not edit->start, to also suppress
+-      // adjacent commercial breaks encountered while seeking
+-      m_Edl.SetLastEditTime(seek);
+-      m_Edl.SetLastEditActionType(edit->action);
++      MarkCommBreakSkipped(*edit, seek);
+ 
+       if (m_SkipCommercials)
+       {
+@@ -3157,6 +3165,40 @@ void CVideoPlayer::HandleMessages()
                         .count()
                   : time;
  
@@ -39,11 +110,9 @@ index 3e0a3aee1b..eee53aee6f 100644
 +        {
 +          const auto& edit = commEdit.value();
 +          const std::chrono::milliseconds seek = m_Edl.GetNextPlayableTime(edit->end);
-+          const auto streamLength{GetSourceStreamLength()};
 +
 +          // Leave a break at the end of the stream to CheckAutoSceneSkip(), which ends playback.
-+          if (m_Edl.GetLastEditTime() != seek &&
-+              (streamLength <= 0ms || seek + 50ms < streamLength))
++          if (m_Edl.GetLastEditTime() != seek && !IsNearStreamEnd(seek))
 +          {
 +            CLog::Log(LOGDEBUG,
 +                      "{} - Seek target {} is in commercial break [{} - {}]. Seeking to next "
@@ -53,14 +122,7 @@ index 3e0a3aee1b..eee53aee6f 100644
 +                      StringUtils::MillisecondsToTimeString(edit->end),
 +                      StringUtils::MillisecondsToTimeString(seek));
 +
-+            CVariant announcement{StringUtils::SecondsToTimeString(
-+                std::chrono::duration_cast<std::chrono::seconds>(edit->end - edit->start).count(),
-+                TIME_FORMAT_MM_SS)};
-+            CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "OnCommercial",
-+                                                               announcement);
-+
-+            m_Edl.SetLastEditTime(seek);
-+            m_Edl.SetLastEditActionType(EDL::Action::COMM_BREAK);
++            MarkCommBreakSkipped(*edit, seek);
 +
 +            time = static_cast<double>(seek.count());
 +            accurate = true;
@@ -72,7 +134,7 @@ index 3e0a3aee1b..eee53aee6f 100644
        // if input stream doesn't support ISeekTime, convert back to pts
        //! @todo
        //! After demuxer we add an offset to input pts so that displayed time and clock are
-@@ -3167,12 +3210,12 @@ void CVideoPlayer::HandleMessages()
+@@ -3167,12 +3209,12 @@ void CVideoPlayer::HandleMessages()
          time -= m_State.time_offset/1000l;
  
        CLog::Log(LOGDEBUG, "demuxer seek to: {:f}", time);
@@ -87,7 +149,7 @@ index 3e0a3aee1b..eee53aee6f 100644
              CLog::Log(LOGDEBUG, "failed to seek subtitle demuxer: {:f}, success", time);
          }
          // dts after successful seek
-@@ -3182,7 +3225,7 @@ void CVideoPlayer::HandleMessages()
+@@ -3182,7 +3224,7 @@ void CVideoPlayer::HandleMessages()
          m_State.dts = start;
          m_State.lastSeek = m_clock.GetAbsoluteClock();
  
@@ -96,6 +158,20 @@ index 3e0a3aee1b..eee53aee6f 100644
        }
        else if (m_pDemuxer)
        {
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.h b/xbmc/cores/VideoPlayer/VideoPlayer.h
+index 53be8ebf1d..b027165e23 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.h
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.h
+@@ -496,7 +496,9 @@ protected:
+   void HandlePlaySpeed();
+   bool IsInMenuInternal() const;
+   void SynchronizeDemuxer();
++  bool IsNearStreamEnd(std::chrono::milliseconds time) const;
+   void QueueAutoSceneSkip(std::chrono::milliseconds seekTime);
++  void MarkCommBreakSkipped(const EDL::Edit& edit, std::chrono::milliseconds seekTime);
+   void CheckAutoSceneSkip();
+   bool CheckContinuity(CCurrentStream& current, DemuxPacket* pPacket);
+   bool CheckSceneSkip(const CCurrentStream& current);
 -- 
 2.55.0
 
