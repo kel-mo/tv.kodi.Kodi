@@ -766,7 +766,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/xbmc/xbmc.git
-        commit: b387094301b30f8580fcd92f1f590e664eab069e
+        commit: faa2ab5781ce8d306e6b5ee95ac1a559b07a135d
       - type: patch
         path: patches/kodi.sh.in.patch
       - type: patch
