@@ -150,6 +150,10 @@ modules:
         path: patches/ffmpeg-v4l2m2m-source-change-last-buffer.patch
         only-arches:
           - aarch64
+      - type: file
+        path: patches/ffmpeg-v4l2m2m-p010.patch
+        only-arches:
+          - aarch64
       - type: shell
         only-arches:
           - aarch64
@@ -157,6 +161,7 @@ modules:
           - patch -p1 < 0001-v4l2-request.patch
           - patch -p1 < 0001-v4l2-drmprime.patch
           - patch -p1 < ffmpeg-v4l2m2m-source-change-last-buffer.patch
+          - patch -p1 < ffmpeg-v4l2m2m-p010.patch
   - name: flatbuffers
     buildsystem: cmake-ninja
     config-opts:

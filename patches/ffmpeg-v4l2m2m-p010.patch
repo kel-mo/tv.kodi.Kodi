@@ -1,0 +1,355 @@
+From: Kel Modderman <kelvmod@gmail.com>
+Subject: [PATCH] avcodec/v4l2_m2m_dec: support P010 capture for 10-bit streams
+
+Qualcomm Iris decodes 10-bit HEVC and VP9 into P010 and switches the
+capture format itself at the first source change, at the same size. The
+wrapper had no P010 mapping and only reinitialised the capture queue on
+a size change, so it kept its NV12 buffers and showed no picture.
+
+Map V4L2_PIX_FMT_P010 to AV_PIX_FMT_P010LE and export it as
+DRM_FORMAT_P010 in DRM PRIME frames. Reinitialise the capture queue when
+the driver changes the pixel format as well as the size, keep the format
+it picked, and fail on a format there is no mapping for.
+
+The capture queue was set up before the first source change, and Iris
+can switch to P010 in the middle of that setup. The decoder now waits up
+to 500 ms for that first source change before it sets up the capture
+queue, as the stateful decoder interface describes, so the format it
+reads is final. As fallbacks the pixel format is taken from the format
+the buffers are requested with, a format with no mapping fails, and a
+setup whose QBUF fails because the format changed after REQBUFS is
+retried once.
+
+While the capture queue streams, the reinit now waits for the LAST
+buffer that ends the source change, as the stateful decoder interface
+describes, instead of running on the event. Reconfiguring before that
+buffer skips the reallocation of Iris' internal buffers and puts Iris in
+an error state when the LAST flag arrives. A picture in that LAST buffer
+is dropped, since the reinit can't wait for the caller to return it, and
+a flush cancels a pending reinit; the next source change raises it again
+if it is still needed.
+
+The wait for the caller to return capture buffers before a reinit is
+bounded to 2 s. A player that keeps its last frame on screen until a new
+one arrives would otherwise hang the decoder; now decoding ends with an
+error the caller can act on. v4l2_get_raw_format() also reports the
+format it kept when the current one is accepted.
+
+A reinit still takes the new height from VIDIOC_G_FMT, which Iris aligns
+to 32 lines, as before. Kodi reopens the codec on size changes, so only
+a format change reinitialises in place.
+
+Applies on top of LibreELEC's v4l2-drmprime patch and the seek fix.
+---
+diff --git a/libavcodec/v4l2_buffers.c b/libavcodec/v4l2_buffers.c
+index af72a42..4475d64 100644
+--- a/libavcodec/v4l2_buffers.c
++++ b/libavcodec/v4l2_buffers.c
+@@ -264,9 +264,11 @@ static uint8_t * v4l2_get_drm_frame(V4L2Buffer *avbuf)
+ 
+     case AV_PIX_FMT_NV12:
+     case AV_PIX_FMT_NV21:
++    case AV_PIX_FMT_P010LE:
+ 
+-        layer->format = avbuf->context->av_pix_fmt == AV_PIX_FMT_NV12 ?
+-            DRM_FORMAT_NV12 : DRM_FORMAT_NV21;
++        layer->format = avbuf->context->av_pix_fmt == AV_PIX_FMT_NV12 ? DRM_FORMAT_NV12 :
++                        avbuf->context->av_pix_fmt == AV_PIX_FMT_NV21 ? DRM_FORMAT_NV21 :
++                                                                        DRM_FORMAT_P010;
+ 
+         if (avbuf->num_planes > 1)
+             break;
+@@ -474,6 +476,7 @@ static int v4l2_buffer_buf_to_swframe(AVFrame *frame, V4L2Buffer *avbuf)
+     switch (avbuf->context->av_pix_fmt) {
+     case AV_PIX_FMT_NV12:
+     case AV_PIX_FMT_NV21:
++    case AV_PIX_FMT_P010LE:
+         if (avbuf->num_planes > 1)
+             break;
+         frame->linesize[1] = avbuf->plane_info[0].bytesperline;
+diff --git a/libavcodec/v4l2_context.c b/libavcodec/v4l2_context.c
+index 07fcb17..7ec9abc 100644
+--- a/libavcodec/v4l2_context.c
++++ b/libavcodec/v4l2_context.c
+@@ -64,6 +64,11 @@ static inline unsigned int v4l2_get_height(struct v4l2_format *fmt)
+     return V4L2_TYPE_IS_MULTIPLANAR(fmt->type) ? fmt->fmt.pix_mp.height : fmt->fmt.pix.height;
+ }
+ 
++static inline uint32_t v4l2_get_pixelformat(struct v4l2_format *fmt)
++{
++    return V4L2_TYPE_IS_MULTIPLANAR(fmt->type) ? fmt->fmt.pix_mp.pixelformat : fmt->fmt.pix.pixelformat;
++}
++
+ static AVRational v4l2_get_sar(V4L2Context *ctx)
+ {
+     struct AVRational sar = { 0, 1 };
+@@ -169,6 +174,42 @@ static int v4l2_start_decode(V4L2Context *ctx)
+     return 0;
+ }
+ 
++static int v4l2_reinit_capture(V4L2Context *ctx, struct v4l2_format *cap_fmt)
++{
++    V4L2m2mContext *s = ctx_to_m2mctx(ctx);
++    uint32_t v4l2_fmt = v4l2_get_pixelformat(cap_fmt);
++    enum AVPixelFormat pixfmt = ff_v4l2_format_v4l2_to_avfmt(v4l2_fmt, AV_CODEC_ID_RAWVIDEO);
++    int ret = 0;
++
++    if (pixfmt == AV_PIX_FMT_NONE) {
++        av_log(logger(ctx), AV_LOG_ERROR, "%s unsupported format %s\n",
++               ctx->name, av_fourcc2str(v4l2_fmt));
++        return AVERROR(EINVAL);
++    }
++
++    /* the format the driver picked, e.g. P010 for 10-bit; v4l2_get_raw_format() tries it first */
++    ctx->av_pix_fmt = pixfmt;
++    ctx->height = v4l2_get_height(cap_fmt);
++    ctx->width = v4l2_get_width(cap_fmt);
++    ctx->sample_aspect_ratio = v4l2_get_sar(ctx);
++
++    s->reinit = 1;
++
++    if (s->avctx)
++        ret = ff_set_dimensions(s->avctx, ctx->width, ctx->height);
++    if (ret < 0)
++        av_log(logger(ctx), AV_LOG_WARNING, "update avcodec height and width\n");
++
++    ret = ff_v4l2_m2m_codec_reinit(s);
++    if (ret) {
++        av_log(logger(ctx), AV_LOG_ERROR, "v4l2_m2m_codec_reinit\n");
++        return AVERROR(EINVAL);
++    }
++
++    /* reinit executed */
++    return 1;
++}
++
+ /**
+  * handle resolution change event and end of stream event
+  * returns 1 if reinit was successful, negative if it failed
+@@ -203,30 +244,19 @@ static int v4l2_handle_event(V4L2Context *ctx)
+         return 0;
+     }
+ 
+-    if (v4l2_resolution_changed(&s->capture, &cap_fmt)) {
+-        s->capture.height = v4l2_get_height(&cap_fmt);
+-        s->capture.width = v4l2_get_width(&cap_fmt);
+-        s->capture.sample_aspect_ratio = v4l2_get_sar(&s->capture);
+-    } else {
++    if (!v4l2_resolution_changed(&s->capture, &cap_fmt) &&
++        v4l2_get_pixelformat(&cap_fmt) == v4l2_get_pixelformat(&s->capture.format)) {
+         /* decoding resumes once the LAST buffer is dequeued */
+         return 0;
+     }
+ 
+-    s->reinit = 1;
+-
+-    if (s->avctx)
+-        ret = ff_set_dimensions(s->avctx, s->capture.width, s->capture.height);
+-    if (ret < 0)
+-        av_log(logger(ctx), AV_LOG_WARNING, "update avcodec height and width\n");
+-
+-    ret = ff_v4l2_m2m_codec_reinit(s);
+-    if (ret) {
+-        av_log(logger(ctx), AV_LOG_ERROR, "v4l2_m2m_codec_reinit\n");
+-        return AVERROR(EINVAL);
++    /* reconfigure once the LAST buffer is dequeued, unless none can come */
++    if (s->capture.streamon) {
++        s->capture.reinit_pending = 1;
++        return 0;
+     }
+ 
+-    /* reinit executed */
+-    return 1;
++    return v4l2_reinit_capture(&s->capture, &cap_fmt);
+ }
+ 
+ static int v4l2_stop_decode(V4L2Context *ctx)
+@@ -269,6 +299,17 @@ static int v4l2_stop_encode(V4L2Context *ctx)
+     return 0;
+ }
+ 
++static V4L2Buffer* v4l2_reinit_pending(V4L2Context *ctx)
++{
++    struct v4l2_format cap_fmt = ctx->format;
++
++    ctx->reinit_pending = 0;
++    if (ioctl(ctx_to_m2mctx(ctx)->fd, VIDIOC_G_FMT, &cap_fmt) ||
++        v4l2_reinit_capture(ctx, &cap_fmt) < 0)
++        ctx->done = 1;
++    return NULL;
++}
++
+ static V4L2Buffer* v4l2_dequeue_v4l2buf(V4L2Context *ctx, int timeout)
+ {
+     struct v4l2_plane planes[VIDEO_MAX_PLANES];
+@@ -430,10 +471,17 @@ dequeue:
+         /* end of a source change: resume */
+         if (!V4L2_TYPE_IS_OUTPUT(ctx->type) && !ctx_to_m2mctx(ctx)->draining &&
+             buf.flags & V4L2_BUF_FLAG_LAST) {
+-            ret = v4l2_start_decode(ctx);
+-            if (ret)
+-                av_log(logger(ctx), AV_LOG_DEBUG, "%s START after LAST: %s\n",
+-                       ctx->name, av_err2str(ret));
++            if (ctx->reinit_pending) {
++                /* the reinit releases the LAST buffer; a picture in it is dropped, as
++                 * the reinit can't wait for the caller to return it */
++                ctx->buffers[buf.index].status = V4L2BUF_AVAILABLE;
++                return v4l2_reinit_pending(ctx);
++            } else {
++                ret = v4l2_start_decode(ctx);
++                if (ret)
++                    av_log(logger(ctx), AV_LOG_DEBUG, "%s START after LAST: %s\n",
++                           ctx->name, av_err2str(ret));
++            }
+         }
+ #endif
+ 
+@@ -570,8 +618,10 @@ static int v4l2_get_raw_format(V4L2Context* ctx, enum AVPixelFormat *p)
+ 
+     if (pixfmt != AV_PIX_FMT_NONE) {
+         ret = v4l2_try_raw_format(ctx, pixfmt);
+-        if (!ret)
++        if (!ret) {
++            *p = pixfmt;
+             return 0;
++        }
+     }
+ 
+     for (;;) {
+@@ -802,6 +852,20 @@ int ff_v4l2_context_init(V4L2Context* ctx)
+     ret = ioctl(s->fd, VIDIOC_G_FMT, &ctx->format);
+     if (ret)
+         av_log(logger(ctx), AV_LOG_ERROR, "%s VIDIOC_G_FMT failed\n", ctx->name);
++    else if (!V4L2_TYPE_IS_OUTPUT(ctx->type) && ctx->av_codec_id == AV_CODEC_ID_RAWVIDEO) {
++        /* the first source change may have switched it since, e.g. to P010 */
++        uint32_t v4l2_fmt = v4l2_get_pixelformat(&ctx->format);
++        enum AVPixelFormat pixfmt = ff_v4l2_format_v4l2_to_avfmt(v4l2_fmt, AV_CODEC_ID_RAWVIDEO);
++
++        if (pixfmt == AV_PIX_FMT_NONE) {
++            av_log(logger(ctx), AV_LOG_ERROR, "%s unsupported format %s\n",
++                   ctx->name, av_fourcc2str(v4l2_fmt));
++            return AVERROR(EINVAL);
++        }
++        ctx->av_pix_fmt = pixfmt;
++        if (s->avctx)
++            s->avctx->pix_fmt = pixfmt;
++    }
+ 
+     memset(&req, 0, sizeof(req));
+     req.count = ctx->num_buffers;
+diff --git a/libavcodec/v4l2_context.h b/libavcodec/v4l2_context.h
+index a861476..eed6797 100644
+--- a/libavcodec/v4l2_context.h
++++ b/libavcodec/v4l2_context.h
+@@ -96,6 +96,12 @@ typedef struct V4L2Context {
+     /* START already tried for a capture DQBUF failing with EPIPE */
+     int epipe_start;
+ 
++    /* capture format changed: reinit at the LAST buffer */
++    int reinit_pending;
++
++    /* capture setup waited for the first source change */
++    int src_change_waited;
++
+     AVBufferRef *frames_ref;
+ 
+ } V4L2Context;
+diff --git a/libavcodec/v4l2_fmt.c b/libavcodec/v4l2_fmt.c
+index 6df47e3..dff1d1f 100644
+--- a/libavcodec/v4l2_fmt.c
++++ b/libavcodec/v4l2_fmt.c
+@@ -74,6 +74,9 @@ static const struct fmt_conversion {
+ #ifdef V4L2_PIX_FMT_NV16M
+     { AV_FMT(NV16),        AV_CODEC(RAWVIDEO),    V4L2_FMT(NV16M) },
+ #endif
++#ifdef V4L2_PIX_FMT_P010
++    { AV_FMT(P010LE),      AV_CODEC(RAWVIDEO),    V4L2_FMT(P010) },
++#endif
+ #ifdef V4L2_PIX_FMT_H263
+     { AV_FMT(NONE),        AV_CODEC(H263),        V4L2_FMT(H263) },
+ #endif
+diff --git a/libavcodec/v4l2_m2m.c b/libavcodec/v4l2_m2m.c
+index 07c7500..fba749d 100644
+--- a/libavcodec/v4l2_m2m.c
++++ b/libavcodec/v4l2_m2m.c
+@@ -27,6 +27,7 @@
+ #include <unistd.h>
+ #include <dirent.h>
+ #include <fcntl.h>
++#include <time.h>
+ #include "libavcodec/avcodec.h"
+ #include "libavutil/mem.h"
+ #include "libavutil/pixdesc.h"
+@@ -222,8 +223,18 @@ int ff_v4l2_m2m_codec_reinit(V4L2m2mContext *s)
+      *    to queue new buffers.
+      */
+     av_log(log_ctx, AV_LOG_DEBUG, "waiting for user to release AVBufferRefs\n");
+-    if (atomic_load(&s->refcount))
+-        while(sem_wait(&s->refsync) == -1 && errno == EINTR);
++    if (atomic_load(&s->refcount)) {
++        /* bounded, a caller may hold its last frame until it gets a new one */
++        struct timespec ts;
++
++        clock_gettime(CLOCK_REALTIME, &ts);
++        ts.tv_sec += 2;
++        while ((ret = sem_timedwait(&s->refsync, &ts)) == -1 && errno == EINTR);
++        if (ret) {
++            av_log(log_ctx, AV_LOG_ERROR, "capture buffers still in use\n");
++            return AVERROR(EBUSY);
++        }
++    }
+ 
+     ff_v4l2_context_release(&s->capture);
+ 
+diff --git a/libavcodec/v4l2_m2m_dec.c b/libavcodec/v4l2_m2m_dec.c
+index b5c7374..f3c0ce1 100644
+--- a/libavcodec/v4l2_m2m_dec.c
++++ b/libavcodec/v4l2_m2m_dec.c
+@@ -23,6 +23,7 @@
+ 
+ #include <linux/videodev2.h>
+ #include <sys/ioctl.h>
++#include <poll.h>
+ 
+ #include "libavutil/hwcontext.h"
+ #include "libavutil/hwcontext_drm.h"
+@@ -67,6 +68,19 @@ static int v4l2_try_start(AVCodecContext *avctx)
+     if (capture->streamon)
+         return 0;
+ 
++    /* the first source change sets the stream's format, e.g. P010 for 10-bit */
++    if (!capture->src_change_waited) {
++        struct pollfd pfd = { .fd = s->fd, .events = POLLPRI };
++
++        capture->src_change_waited = 1;
++        while (poll(&pfd, 1, 500) > 0 && pfd.revents & POLLPRI) {
++            struct v4l2_event evt = { 0 };
++
++            if (ioctl(s->fd, VIDIOC_DQEVENT, &evt) || evt.type == V4L2_EVENT_SOURCE_CHANGE)
++                break;
++        }
++    }
++
+     /* 2. get the capture format */
+     capture->format.type = capture->type;
+     ret = ioctl(s->fd, VIDIOC_G_FMT, &capture->format);
+@@ -99,6 +113,11 @@ static int v4l2_try_start(AVCodecContext *avctx)
+     /* 4. init the capture context now that we have the capture format */
+     if (!capture->buffers) {
+         ret = ff_v4l2_context_init(capture);
++        /* a source change that switched the format during setup fails QBUF, retry with the new one */
++        if (ret) {
++            av_log(avctx, AV_LOG_DEBUG, "retrying capture setup\n");
++            ret = ff_v4l2_context_init(capture);
++        }
+         if (ret) {
+             av_log(avctx, AV_LOG_ERROR, "can't request capture buffers\n");
+             return AVERROR(ENOMEM);
+@@ -303,6 +322,7 @@ static void v4l2_decode_flush(AVCodecContext *avctx)
+     output->done = 0;
+     capture->done = 0;
+     capture->epipe_start = 0;
++    capture->reinit_pending = 0;
+ }
+ 
+ #define OFFSET(x) offsetof(V4L2m2mPriv, x)
