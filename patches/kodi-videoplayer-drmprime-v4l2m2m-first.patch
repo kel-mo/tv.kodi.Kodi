@@ -1,0 +1,333 @@
+From: Kel Modderman <kelvmod@gmail.com>
+Subject: [PATCH] [VideoPlayer] DRMPRIME: try stateful V4L2 decoders before hwaccels
+
+FindDecoder() took the first decoder with a DRM PRIME hw config, which is
+the native decoder with the v4l2-request hwaccel. On a SoC with only a
+stateful decoder (Qualcomm Iris/Venus) that hwaccel has no device, fails
+on the first frame and ffmpeg falls back to software, so the v4l2m2m
+wrapper was never tried.
+
+Try the hardware wrappers first. They fail in avcodec_open2() when no
+device handles the codec, and Open() then retries with the hwaccels
+before forcing software. Streams that are not 4:2:0 at 8 or 10 bits, by
+bit depth or profile, skip the wrappers, whose DRM PRIME output maps
+only NV12 and P010. A wrapper that still fails before its first
+picture, for example on interlaced H.264 that Iris rejects, returns
+VC_REOPEN and is reopened without wrappers, with the kept packets sent
+again. An end of stream from a wrapper without a drain is a failure too,
+also after the first picture, so packets are kept for wrappers all along.
+A failure after the first picture leaves the rest of the item to software
+decoding, which 4K Main 10 can't keep up with, so it's logged as an error.
+
+The stream's profile is set on the codec context, since native decoders
+take it from the stream but the wrappers never set it, and
+SetPictureParams() also takes the bit depth from the software format of
+the wrappers' frames, as inputstream add-ons pass no HEVC profile. Main
+10 is otherwise reported as 8-bit and the GBM output drops to 8 bits.
+
+Reset() no longer drains a wrapper before flushing. A seek on a stateful
+decoder only needs the flush, and the drain stops the decoder until it
+is restarted.
+---
+diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.cpp b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.cpp
+index ca5ef8212e..a737dab598 100644
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.cpp
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.cpp
+@@ -30,6 +30,7 @@ extern "C"
+ {
+ #include <libavcodec/avcodec.h>
+ #include <libavutil/error.h>
++#include <libavutil/hwcontext.h>
+ #include <libavutil/imgutils.h>
+ #include <libavutil/opt.h>
+ #include <libavutil/pixdesc.h>
+@@ -73,6 +74,11 @@ static void AlignedSize(AVCodecContext* avctx, int& width, int& height)
+   height = h;
+ }
+ 
++static bool IsWrapper(const AVCodecContext* avctx)
++{
++  return avctx && (avctx->codec->capabilities & AV_CODEC_CAP_HARDWARE);
++}
++
+ bool SupportsDRM()
+ {
+   AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
+@@ -181,23 +187,68 @@ static const AVCodecHWConfig* FindHWConfig(const AVCodec* codec)
+   return nullptr;
+ }
+ 
+-static const AVCodec* FindDecoder(CDVDStreamInfo& hints)
++static const AVCodec* FindHWDecoder(const CDVDStreamInfo& hints, bool wrapper)
+ {
+   const AVCodec* codec = nullptr;
+   void* i = 0;
+ 
++  while ((codec = av_codec_iterate(&i)))
++  {
++    if (!av_codec_is_decoder(codec))
++      continue;
++    if (codec->id != hints.codec)
++      continue;
++    if (((codec->capabilities & AV_CODEC_CAP_HARDWARE) != 0) != wrapper)
++      continue;
++
++    const AVCodecHWConfig* config = FindHWConfig(codec);
++    if (config)
++      return codec;
++  }
++
++  return nullptr;
++}
++
++// the wrappers' DRM PRIME output only maps 4:2:0 as NV12 or P010
++static bool IsWrapperFormat(const CDVDStreamInfo& hints)
++{
++  if (hints.bitdepth > 10)
++    return false;
++
++  switch (hints.codec)
++  {
++    case AV_CODEC_ID_H264:
++      switch (hints.profile & ~AV_PROFILE_H264_INTRA)
++      {
++        case AV_PROFILE_H264_HIGH_10:
++        case AV_PROFILE_H264_HIGH_422:
++        case AV_PROFILE_H264_HIGH_444_PREDICTIVE:
++        case AV_PROFILE_H264_CAVLC_444:
++          return false;
++        default:
++          return true;
++      }
++    case AV_CODEC_ID_HEVC:
++      return hints.profile != AV_PROFILE_HEVC_REXT && hints.profile != AV_PROFILE_HEVC_SCC;
++    case AV_CODEC_ID_VP9:
++      return hints.profile != AV_PROFILE_VP9_1 && hints.profile != AV_PROFILE_VP9_3;
++    default:
++      return true;
++  }
++}
++
++static const AVCodec* FindDecoder(CDVDStreamInfo& hints, bool hwWrappers)
++{
++  const AVCodec* codec = nullptr;
++
+   if (!(hints.codecOptions & CODEC_FORCE_SOFTWARE))
+-    while ((codec = av_codec_iterate(&i)))
+-    {
+-      if (!av_codec_is_decoder(codec))
+-        continue;
+-      if (codec->id != hints.codec)
+-        continue;
+-
+-      const AVCodecHWConfig* config = FindHWConfig(codec);
+-      if (config)
+-        return codec;
+-    }
++  {
++    // wrappers (v4l2m2m) fail to open without a device, hwaccels only once decoding
++    if (hwWrappers && IsWrapperFormat(hints) && (codec = FindHWDecoder(hints, true)))
++      return codec;
++    if ((codec = FindHWDecoder(hints, false)))
++      return codec;
++  }
+ 
+   codec = avcodec_find_decoder(hints.codec);
+   if (codec && (codec->capabilities & AV_CODEC_CAP_DR1) == AV_CODEC_CAP_DR1)
+@@ -289,7 +340,7 @@ int CDVDVideoCodecDRMPRIME::GetBuffer(struct AVCodecContext* avctx, AVFrame* fra
+ 
+ bool CDVDVideoCodecDRMPRIME::Open(CDVDStreamInfo& hints, CDVDCodecOptions& options)
+ {
+-  const AVCodec* pCodec = FindDecoder(hints);
++  const AVCodec* pCodec = FindDecoder(hints, !m_skipHwWrappers);
+   if (!pCodec)
+   {
+     CLog::Log(LOGDEBUG, "CDVDVideoCodecDRMPRIME::{} - unable to find decoder for codec {}",
+@@ -305,6 +356,7 @@ bool CDVDVideoCodecDRMPRIME::Open(CDVDStreamInfo& hints, CDVDCodecOptions& optio
+     return false;
+ 
+   m_hints = hints;
++  m_options = options;
+ 
+   const AVCodecHWConfig* pConfig = FindHWConfig(pCodec);
+   if (pConfig && (pConfig->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX))
+@@ -361,6 +413,8 @@ bool CDVDVideoCodecDRMPRIME::Open(CDVDStreamInfo& hints, CDVDCodecOptions& optio
+   m_pCodecContext->coded_width = hints.width;
+   m_pCodecContext->coded_height = hints.height;
+   m_pCodecContext->bits_per_coded_sample = hints.bitsperpixel;
++  // native decoders take it from the stream, the wrappers leave it for SetPictureParams()
++  m_pCodecContext->profile = hints.profile;
+   m_pCodecContext->time_base.num = 1;
+   m_pCodecContext->time_base.den = DVD_TIME_BASE;
+   m_pCodecContext->thread_count = CServiceBroker::GetCPUInfo()->GetCPUCount();
+@@ -386,7 +440,10 @@ bool CDVDVideoCodecDRMPRIME::Open(CDVDStreamInfo& hints, CDVDCodecOptions& optio
+     if (hints.codecOptions & CODEC_FORCE_SOFTWARE)
+       return false;
+ 
+-    hints.codecOptions |= CODEC_FORCE_SOFTWARE;
++    if (pCodec->capabilities & AV_CODEC_CAP_HARDWARE)
++      m_skipHwWrappers = true;
++    else
++      hints.codecOptions |= CODEC_FORCE_SOFTWARE;
+     return Open(hints, options);
+   }
+ 
+@@ -454,6 +511,12 @@ bool CDVDVideoCodecDRMPRIME::AddData(const DemuxPacket& packet)
+     av_strerror(ret, err, AV_ERROR_MAX_STRING_SIZE);
+     CLog::Log(LOGERROR, "CDVDVideoCodecDRMPRIME::{} - send packet failed: {} ({})", __FUNCTION__,
+               err, ret);
++    // keep the packet for Reopen() without wrappers
++    if (IsWrapper(m_pCodecContext) && !m_gotPicture)
++    {
++      m_wrapperFailed = true;
++      return true;
++    }
+     if (ret != AVERROR_EOF && ret != AVERROR_INVALIDDATA)
+       return false;
+   }
+@@ -466,9 +529,12 @@ void CDVDVideoCodecDRMPRIME::Reset()
+   if (!m_pCodecContext)
+     return;
+ 
+-  Drain();
++  // stateful wrappers (v4l2m2m) seek with a flush alone, a drain would stop them
++  const bool drain = !IsWrapper(m_pCodecContext);
++  if (drain)
++    Drain();
+ 
+-  do
++  while (drain)
+   {
+     int ret = avcodec_receive_frame(m_pCodecContext, m_pFrame);
+     if (ret == AVERROR_EOF)
+@@ -483,7 +549,7 @@ void CDVDVideoCodecDRMPRIME::Reset()
+     }
+     else
+       av_frame_unref(m_pFrame);
+-  } while (true);
++  }
+ 
+   CLog::Log(LOGDEBUG, "CDVDVideoCodecDRMPRIME::{} - flush buffers", __FUNCTION__);
+   avcodec_flush_buffers(m_pCodecContext);
+@@ -567,6 +633,15 @@ void CDVDVideoCodecDRMPRIME::SetPictureParams(VideoPicture* pVideoPicture)
+             m_pCodecContext->profile == AV_PROFILE_H264_HIGH_10_INTRA))
+     pVideoPicture->colorBits = 10;
+ 
++  // the wrappers' frames carry the bit depth in their software format
++  if (m_pFrame->hw_frames_ctx)
++  {
++    const auto* frames = reinterpret_cast<AVHWFramesContext*>(m_pFrame->hw_frames_ctx->data);
++    const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(frames->sw_format);
++    if (desc && desc->comp[0].depth > 8)
++      pVideoPicture->colorBits = desc->comp[0].depth;
++  }
++
+   pVideoPicture->hdrType = m_hints.hdrType;
+   pVideoPicture->hdrTypeAlt = StreamHdrType::HDR_TYPE_NONE;
+ 
+@@ -630,6 +705,12 @@ void CDVDVideoCodecDRMPRIME::SetPictureParams(VideoPicture* pVideoPicture)
+ 
+ CDVDVideoCodec::VCReturn CDVDVideoCodecDRMPRIME::GetPicture(VideoPicture* pVideoPicture)
+ {
++  if (m_wrapperFailed)
++    return VC_REOPEN;
++
++  if (!m_pCodecContext)
++    return VC_ERROR;
++
+   if (m_codecControlFlags & DVD_CODEC_CTRL_DRAIN)
+     Drain();
+ 
+@@ -638,6 +719,13 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecDRMPRIME::GetPicture(VideoPicture* pVideo
+     return VC_BUFFER;
+   else if (ret == AVERROR_EOF)
+   {
++    // a wrapper that ended without a drain failed
++    if (IsWrapper(m_pCodecContext) && !(m_codecControlFlags & DVD_CODEC_CTRL_DRAIN))
++    {
++      CLog::Log(LOGERROR, "CDVDVideoCodecDRMPRIME::{} - {} ended without a drain", __FUNCTION__,
++                m_pCodecContext->codec->name);
++      return VC_REOPEN;
++    }
+     if (m_codecControlFlags & DVD_CODEC_CTRL_DRAIN)
+     {
+       CLog::Log(LOGDEBUG, "CDVDVideoCodecDRMPRIME::{} - flush buffers", __FUNCTION__);
+@@ -652,6 +740,8 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecDRMPRIME::GetPicture(VideoPicture* pVideo
+     av_strerror(ret, err, AV_ERROR_MAX_STRING_SIZE);
+     CLog::Log(LOGERROR, "CDVDVideoCodecDRMPRIME::{} - receive frame failed: {} ({})", __FUNCTION__,
+               err, ret);
++    if (IsWrapper(m_pCodecContext) && !m_gotPicture)
++      return VC_REOPEN;
+     return VC_ERROR;
+   }
+ 
+@@ -696,6 +786,7 @@ CDVDVideoCodec::VCReturn CDVDVideoCodecDRMPRIME::GetPicture(VideoPicture* pVideo
+     return VC_ERROR;
+   }
+ 
++  m_gotPicture = true;
+   return VC_PICTURE;
+ }
+ 
+@@ -719,3 +810,28 @@ void CDVDVideoCodecDRMPRIME::SetCodecControl(int flags)
+     }
+   }
+ }
++
++void CDVDVideoCodecDRMPRIME::Reopen()
++{
++  // a wrapper failed, decode without wrappers
++  CLog::Log(LOGERROR, "CDVDVideoCodecDRMPRIME::{} - {} failed, reopening without wrappers",
++            __FUNCTION__, m_pCodecContext ? m_pCodecContext->codec->name : "wrapper");
++  av_frame_unref(m_pFrame);
++  avcodec_free_context(&m_pCodecContext);
++  m_skipHwWrappers = true;
++  m_wrapperFailed = false;
++
++  CDVDStreamInfo hints(m_hints);
++  if (!Open(hints, m_options))
++  {
++    CLog::Log(LOGERROR, "CDVDVideoCodecDRMPRIME::{} - reopen without wrappers failed",
++              __FUNCTION__);
++    avcodec_free_context(&m_pCodecContext);
++  }
++}
++
++unsigned CDVDVideoCodecDRMPRIME::GetConvergeCount()
++{
++  // packets kept for Reopen()
++  return IsWrapper(m_pCodecContext) ? 25 : 0;
++}
+diff --git a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.h b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.h
+index 4c78c58df6..580bff926c 100644
+--- a/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.h
++++ b/xbmc/cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodecDRMPRIME.h
+@@ -9,6 +9,7 @@
+ #pragma once
+ 
+ #include "cores/VideoPlayer/Buffers/VideoBuffer.h"
++#include "cores/VideoPlayer/DVDCodecs/DVDCodecs.h"
+ #include "cores/VideoPlayer/DVDCodecs/Video/DVDVideoCodec.h"
+ #include "cores/VideoPlayer/DVDStreamInfo.h"
+ 
+@@ -33,6 +34,8 @@ public:
+   const char* GetName() override { return m_name.c_str(); }
+   unsigned GetAllowedReferences() override { return 5; }
+   void SetCodecControl(int flags) override;
++  void Reopen() override;
++  unsigned GetConvergeCount() override;
+ 
+ protected:
+   void Drain();
+@@ -43,7 +46,11 @@ protected:
+ 
+   std::string m_name;
+   int m_codecControlFlags = 0;
++  bool m_skipHwWrappers = false;
++  bool m_wrapperFailed = false;
++  bool m_gotPicture = false;
+   CDVDStreamInfo m_hints;
++  CDVDCodecOptions m_options;
+   double m_DAR = 1.0;
+   AVCodecContext* m_pCodecContext = nullptr;
+   AVFrame* m_pFrame = nullptr;
