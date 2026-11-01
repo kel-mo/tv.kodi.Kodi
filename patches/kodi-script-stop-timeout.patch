@@ -1,4 +1,4 @@
-From 59526f207f177902b1b5258f103f7ace9c29771e Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sun, 18 Oct 2026 12:59:46 +1000
 Subject: [PATCH] Don't let a script that won't stop keep Kodi from exiting
@@ -13,21 +13,32 @@ running and leave them. Their thread objects are never destroyed, because
 ~CThread() would join them.
 
 Such a script still runs in its sub-interpreter, and finalizing Python
-under it crashes Kodi as soon as the script runs again. XBPython counts a
-script from the start of CPythonInvoker::Execute() on its thread until
-its invoker is destroyed, and a script that was left running is never
-destroyed. XBPython::Uninitialize() now reads that count, then takes the
-GIL and looks for interpreters besides the main one, which a script that
-failed can also leave behind. If it finds either, it keeps the GIL until
-Kodi exits and ~XBPython() skips Py_Finalize(), so no further Python
-code runs while Kodi shuts down. XBPython::Uninitialize() runs twice
-during shutdown, so the second call leaves the GIL alone.
+under it crashes Kodi as soon as the script runs again. XBPython keeps
+track of each script invoker from the start of CPythonInvoker::Execute()
+on its thread until the invoker is destroyed, and a script that was left
+running is never destroyed. XBPython::Uninitialize() looks for such
+invokers and from then on doesn't start any more scripts, so a script
+thread still on its way into Execute() can't start Python after that.
+It then takes the GIL and looks for interpreters besides the main one,
+which a script that failed can also leave behind. If it finds either, it
+keeps the GIL until Kodi exits and ~XBPython() skips Py_Finalize(), so
+no further Python code runs while Kodi shuts down.
+XBPython::Uninitialize() runs twice during shutdown; once the first call
+has kept the GIL, the second leaves it alone.
+
+Scripts whose invoker has already failed only get 1 second of those 5
+seconds, together. CPythonInvoker::stop() leaves an invoker in that
+state once it has waited 5 seconds for the script and raised SystemExit
+in it, so such a script already had its 5 seconds, and if it is still
+running it caught SystemExit or is blocked in a call. The 1 second is
+there so a script that honours SystemExit can still end, rather than
+being left behind and making XBPython skip Py_Finalize().
 ---
- .../generic/LanguageInvokerThread.h           | 11 +++++++
- .../generic/ScriptInvocationManager.cpp       | 27 +++++++++++++++-
- xbmc/interfaces/python/XBPython.cpp           | 31 +++++++++++++++++++
- xbmc/interfaces/python/XBPython.h             |  1 +
- 4 files changed, 69 insertions(+), 1 deletion(-)
+ .../generic/LanguageInvokerThread.h           | 11 +++++
+ .../generic/ScriptInvocationManager.cpp       | 32 ++++++++++++-
+ xbmc/interfaces/python/XBPython.cpp           | 46 ++++++++++++++++---
+ xbmc/interfaces/python/XBPython.h             |  5 +-
+ 4 files changed, 86 insertions(+), 8 deletions(-)
 
 diff --git a/xbmc/interfaces/generic/LanguageInvokerThread.h b/xbmc/interfaces/generic/LanguageInvokerThread.h
 index 713d37a6bc..655e4731cf 100644
@@ -59,7 +70,7 @@ index 713d37a6bc..655e4731cf 100644
    bool execute(const std::string &script, const std::vector<std::string> &arguments) override;
    bool stop(bool wait) override;
 diff --git a/xbmc/interfaces/generic/ScriptInvocationManager.cpp b/xbmc/interfaces/generic/ScriptInvocationManager.cpp
-index c6fe84593a..cb7aa8d8b7 100644
+index 952f379b0e..db51166532 100644
 --- a/xbmc/interfaces/generic/ScriptInvocationManager.cpp
 +++ b/xbmc/interfaces/generic/ScriptInvocationManager.cpp
 @@ -11,6 +11,7 @@
@@ -70,7 +81,7 @@ index c6fe84593a..cb7aa8d8b7 100644
  #include "utils/FileUtils.h"
  #include "utils/StringUtils.h"
  #include "utils/URIUtils.h"
-@@ -25,6 +26,14 @@
+@@ -25,6 +26,16 @@
  #include <utility>
  #include <vector>
  
@@ -80,12 +91,14 @@ index c6fe84593a..cb7aa8d8b7 100644
 +{
 +// how long Uninitialize() waits for scripts it asked to stop
 +constexpr auto SCRIPT_STOP_TIMEOUT = 5s;
++// and for those that stop() already gave 5 s and SystemExit
++constexpr auto SCRIPT_STOP_GRACE = 1s;
 +} // namespace
 +
  CScriptInvocationManager::~CScriptInvocationManager()
  {
    Uninitialize();
-@@ -84,7 +93,23 @@ void CScriptInvocationManager::Uninitialize()
+@@ -84,7 +95,26 @@ void CScriptInvocationManager::Uninitialize()
                          [](auto& val)
                          {
                            if (!val.done)
@@ -96,10 +109,13 @@ index c6fe84593a..cb7aa8d8b7 100644
 +  // a script that catches SystemExit or blocks in a call that never returns would keep
 +  // Kodi from exiting, so don't wait for it forever
 +  XbmcThreads::EndTime<> timeout(SCRIPT_STOP_TIMEOUT);
++  XbmcThreads::EndTime<> grace(SCRIPT_STOP_GRACE);
 +  std::ranges::for_each(tempList,
-+                        [&timeout](auto& val)
++                        [&timeout, &grace](auto& val)
 +                        {
-+                          if (val.done || val.thread->WaitForExit(timeout.GetTimeLeft()))
++                          const auto& end =
++                              val.thread->GetState() == InvokerStateFailed ? grace : timeout;
++                          if (val.done || val.thread->WaitForExit(end.GetTimeLeft()))
 +                            return;
 +                          CLog::Log(LOGERROR,
 +                                    "CScriptInvocationManager: script {} did not stop, not "
@@ -111,7 +127,7 @@ index c6fe84593a..cb7aa8d8b7 100644
  
    lock.lock();
 diff --git a/xbmc/interfaces/python/XBPython.cpp b/xbmc/interfaces/python/XBPython.cpp
-index 46f9b540c7..c6e965677c 100644
+index 46f9b540c7..0f0adec13d 100644
 --- a/xbmc/interfaces/python/XBPython.cpp
 +++ b/xbmc/interfaces/python/XBPython.cpp
 @@ -110,6 +110,10 @@ XBPython::~XBPython()
@@ -125,20 +141,22 @@ index 46f9b540c7..c6e965677c 100644
      // Switch to the main interpreter thread before finalizing
      PyThreadState_Swap(m_mainThreadState);
  
-@@ -497,6 +501,33 @@ void XBPython::Uninitialize()
+@@ -497,6 +501,35 @@ void XBPython::Uninitialize()
  
    // cleanup threads that are still running
    tmpvec.clear();
 +
 +  // a script that CScriptInvocationManager gave up on keeps its invoker, and a script that
 +  // failed can leave its interpreter behind: then keep the GIL from now on, so no further
-+  // Python code runs while Kodi exits, and don't finalize Python under them
++  // Python code runs while Kodi exits, and don't finalize Python under them. Scripts not
++  // counted by now are refused in OnScriptInitialized().
 +  if (m_skipFinalize)
 +    return;
 +  int scriptsRunning;
 +  {
 +    std::unique_lock counterLock(m_critSection);
-+    scriptsRunning = m_iDllScriptCounter;
++    m_scriptsClosed = true;
++    scriptsRunning = static_cast<int>(m_scriptsStarted.size());
 +  }
 +  PyEval_RestoreThread(m_mainThreadState);
 +  bool interpreterLeft = false;
@@ -159,15 +177,53 @@ index 46f9b540c7..c6e965677c 100644
  }
  
  void XBPython::Process()
+@@ -528,7 +561,12 @@ bool XBPython::OnScriptInitialized(ILanguageInvoker* invoker)
+   XBMC_TRACE;
+   CLog::Log(LOGDEBUG, "initializing python script");
+   std::unique_lock lock(m_critSection);
+-  m_iDllScriptCounter++;
++  if (m_scriptsClosed)
++  {
++    CLog::Log(LOGWARNING, "XBPython: Python is shutting down, not starting the script");
++    return false;
++  }
++  m_scriptsStarted.insert(invoker);
+ 
+   return true;
+ }
+@@ -587,11 +625,7 @@ void XBPython::OnScriptFinalized(ILanguageInvoker* invoker)
+ {
+   XBMC_TRACE;
+   std::unique_lock lock(m_critSection);
+-  // for linux - we never release the library. its loaded and stays in memory.
+-  if (m_iDllScriptCounter)
+-    m_iDllScriptCounter--;
+-  else
+-    CLog::Log(LOGERROR, "Python script counter attempted to become negative");
++  m_scriptsStarted.erase(invoker);
+ }
+ 
+ std::shared_ptr<ILanguageInvoker> XBPython::CreateInvoker()
 diff --git a/xbmc/interfaces/python/XBPython.h b/xbmc/interfaces/python/XBPython.h
-index 094264627c..8c8231b859 100644
+index 094264627c..56e2c6607b 100644
 --- a/xbmc/interfaces/python/XBPython.h
 +++ b/xbmc/interfaces/python/XBPython.h
-@@ -114,6 +114,7 @@ private:
+@@ -16,6 +16,7 @@
+ #include "threads/Thread.h"
+ 
+ #include <memory>
++#include <set>
+ #include <vector>
+ 
+ class CPythonInvoker;
+@@ -113,7 +114,9 @@ private:
+   CCriticalSection m_critSection;
    PyThreadState* m_mainThreadState{nullptr};
    bool m_bindingModulesLoaded{true};
-   int m_iDllScriptCounter{0}; // to keep track of the total scripts running that need the dll
+-  int m_iDllScriptCounter{0}; // to keep track of the total scripts running that need the dll
++  std::set<const ILanguageInvoker*> m_scriptsStarted; // between OnScriptInitialized/Finalized
 +  bool m_skipFinalize{false}; // GIL kept since Uninitialize()
++  bool m_scriptsClosed{false}; // no script starts once Uninitialize() counts them
  
    //Vector with list of threads used for running scripts
    PyList m_vecPyList;
