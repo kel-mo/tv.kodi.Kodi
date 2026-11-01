@@ -139,11 +139,24 @@ modules:
         dest-filename: 0001-v4l2-request.patch
         only-arches:
           - aarch64
+      # v4l2-drmprime (from LibreELEC) gives the v4l2m2m wrappers for stateful decoders (Qualcomm Iris) DRM PRIME output
+      - type: file
+        url: https://raw.githubusercontent.com/LibreELEC/LibreELEC.tv/cd0c6aab93d91cfd1a6043753c80616f551f5218/packages/multimedia/ffmpeg/patches/v4l2-drmprime/0001-v4l2-drmprime.patch
+        sha256: 3406cb4eca1aa2f44d62102a99a393e13545bd92a64bd95a9b4d20fbaedab7ae
+        dest-filename: 0001-v4l2-drmprime.patch
+        only-arches:
+          - aarch64
+      - type: file
+        path: patches/ffmpeg-v4l2m2m-source-change-last-buffer.patch
+        only-arches:
+          - aarch64
       - type: shell
         only-arches:
           - aarch64
         commands:
           - patch -p1 < 0001-v4l2-request.patch
+          - patch -p1 < 0001-v4l2-drmprime.patch
+          - patch -p1 < ffmpeg-v4l2m2m-source-change-last-buffer.patch
   - name: flatbuffers
     buildsystem: cmake-ninja
     config-opts:
