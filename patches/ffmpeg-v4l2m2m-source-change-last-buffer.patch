@@ -1,0 +1,175 @@
+From: Kel Modderman <kelvmod@gmail.com>
+Subject: [PATCH] avcodec/v4l2_m2m_dec: fix seeking on stateful decoders
+
+Qualcomm Iris raises a source change after every seek and ends it with an
+empty capture buffer flagged LAST. Sending V4L2_DEC_CMD_START on the
+event, before that buffer is dequeued, leaves the capture queue stopped:
+every later VIDIOC_DQBUF fails with EPIPE and the video freezes.
+
+Resume once the LAST buffer is dequeued, as the stateful decoder
+interface describes. If DQBUF still fails with EPIPE outside a drain,
+try one START and report the error. Empty capture buffers outside a
+drain are requeued instead of being returned as frames: Iris returns
+them for the LAST buffer and for frames dropped after a seek, and the
+latter were logged as decode errors.
+
+The flush resumes a finished drain before it restarts the OUTPUT queue,
+so no LAST buffer can follow, requeues capture buffers left out of the
+driver, and drops the packet held from before the flush. An EOS event
+only ends decoding while draining, since Iris raises it for source
+changes too. A failure to start the capture queue is returned to the
+caller instead of a successful call without a frame, so it can fall
+back.
+
+Applies on top of LibreELEC's v4l2-drmprime patch.
+---
+diff --git a/libavcodec/v4l2_context.c b/libavcodec/v4l2_context.c
+index 1f1fd6d..07fcb17 100644
+--- a/libavcodec/v4l2_context.c
++++ b/libavcodec/v4l2_context.c
+@@ -188,7 +188,9 @@ static int v4l2_handle_event(V4L2Context *ctx)
+     }
+ 
+     if (evt.type == V4L2_EVENT_EOS) {
+-        ctx->done = 1;
++        /* Iris also raises EOS at the LAST buffer of a source change */
++        if (s->draining)
++            ctx->done = 1;
+         return 0;
+     }
+ 
+@@ -206,7 +208,7 @@ static int v4l2_handle_event(V4L2Context *ctx)
+         s->capture.width = v4l2_get_width(&cap_fmt);
+         s->capture.sample_aspect_ratio = v4l2_get_sar(&s->capture);
+     } else {
+-        v4l2_start_decode(ctx);
++        /* decoding resumes once the LAST buffer is dequeued */
+         return 0;
+     }
+ 
+@@ -387,6 +389,18 @@ dequeue:
+ 
+         ret = ioctl(ctx_to_m2mctx(ctx)->fd, VIDIOC_DQBUF, &buf);
+         if (ret) {
++            /* stopped by a LAST buffer that nothing resumed, try one START */
++            if (errno == EPIPE && !V4L2_TYPE_IS_OUTPUT(ctx->type) &&
++                !ctx_to_m2mctx(ctx)->draining && !ctx->done) {
++                if (!ctx->epipe_start) {
++                    ctx->epipe_start = 1;
++                    if (!v4l2_start_decode(ctx))
++                        return NULL;
++                }
++                av_log(logger(ctx), AV_LOG_ERROR, "%s stopped after an extra LAST buffer\n",
++                       ctx->name);
++                errno = EPIPE;
++            }
+             if (errno != EAGAIN) {
+                 ctx->done = 1;
+                 if (errno != EPIPE)
+@@ -395,11 +409,14 @@ dequeue:
+             }
+             return NULL;
+         }
++        ctx->epipe_start = 0;
+ 
+         if (ctx_to_m2mctx(ctx)->draining && !V4L2_TYPE_IS_OUTPUT(ctx->type)) {
+             int bytesused = V4L2_TYPE_IS_MULTIPLANAR(buf.type) ?
+                             buf.m.planes[0].bytesused : buf.bytesused;
+             if (bytesused == 0) {
++                /* requeued by the flush */
++                ctx->buffers[buf.index].status = V4L2BUF_AVAILABLE;
+                 ctx->done = 1;
+                 return NULL;
+             }
+@@ -409,6 +426,26 @@ dequeue:
+ #endif
+         }
+ 
++#ifdef V4L2_BUF_FLAG_LAST
++        /* end of a source change: resume */
++        if (!V4L2_TYPE_IS_OUTPUT(ctx->type) && !ctx_to_m2mctx(ctx)->draining &&
++            buf.flags & V4L2_BUF_FLAG_LAST) {
++            ret = v4l2_start_decode(ctx);
++            if (ret)
++                av_log(logger(ctx), AV_LOG_DEBUG, "%s START after LAST: %s\n",
++                       ctx->name, av_err2str(ret));
++        }
++#endif
++
++        /* an empty capture buffer carries no picture, requeue it */
++        if (!V4L2_TYPE_IS_OUTPUT(ctx->type) && !ctx_to_m2mctx(ctx)->draining &&
++            !(V4L2_TYPE_IS_MULTIPLANAR(buf.type) ? buf.m.planes[0].bytesused : buf.bytesused)) {
++            /* left AVAILABLE for the flush if the requeue fails */
++            ctx->buffers[buf.index].status = V4L2BUF_AVAILABLE;
++            ff_v4l2_buffer_enqueue(&ctx->buffers[buf.index]);
++            return NULL;
++        }
++
+         avbuf = &ctx->buffers[buf.index];
+         avbuf->status = V4L2BUF_AVAILABLE;
+         avbuf->buf = buf;
+diff --git a/libavcodec/v4l2_context.h b/libavcodec/v4l2_context.h
+index 858d0ec..a861476 100644
+--- a/libavcodec/v4l2_context.h
++++ b/libavcodec/v4l2_context.h
+@@ -93,6 +93,9 @@ typedef struct V4L2Context {
+      */
+     int done;
+ 
++    /* START already tried for a capture DQBUF failing with EPIPE */
++    int epipe_start;
++
+     AVBufferRef *frames_ref;
+ 
+ } V4L2Context;
+diff --git a/libavcodec/v4l2_m2m_dec.c b/libavcodec/v4l2_m2m_dec.c
+index 3d6a3a5..b5c7374 100644
+--- a/libavcodec/v4l2_m2m_dec.c
++++ b/libavcodec/v4l2_m2m_dec.c
+@@ -177,9 +177,7 @@ static int v4l2_receive_frame(AVCodecContext *avctx, AVFrame *frame)
+     if (!s->draining) {
+         ret = v4l2_try_start(avctx);
+         if (ret) {
+-            /* can't recover */
+-            if (ret != AVERROR(ENOMEM))
+-                ret = 0;
++            /* can't recover, let the caller fall back */
+             goto fail;
+         }
+     }
+@@ -273,6 +271,13 @@ static void v4l2_decode_flush(AVCodecContext *avctx)
+         .flags = 0,
+     };
+ 
++    /* only a drain stops the decoder, resume it before the OUTPUT restart */
++    if (s->draining) {
++        ret = ioctl(s->fd, VIDIOC_DECODER_CMD, &cmd);
++        if (ret < 0)
++            av_log(avctx, AV_LOG_DEBUG, "VIDIOC_DECODER_CMD start error: %d\n", errno);
++    }
++
+     ret = ff_v4l2_context_set_status(output, VIDIOC_STREAMOFF);
+     if (ret < 0)
+         av_log(avctx, AV_LOG_ERROR, "VIDIOC_STREAMOFF %s error: %d\n", output->name, ret);
+@@ -286,13 +291,18 @@ static void v4l2_decode_flush(AVCodecContext *avctx)
+             output->buffers[i].status = V4L2BUF_AVAILABLE;
+     }
+ 
+-    ret = ioctl(s->fd, VIDIOC_DECODER_CMD, &cmd);
+-    if (ret < 0)
+-        av_log(avctx, AV_LOG_ERROR, "VIDIOC_DECODER_CMD start error: %d\n", errno);
++    /* requeue capture buffers left out, like the empty LAST buffer of a drain */
++    for (i = 0; capture->streamon && capture->buffers && i < capture->num_buffers; i++) {
++        if (capture->buffers[i].status == V4L2BUF_AVAILABLE &&
++            !atomic_load(&capture->buffers[i].context_refcount))
++            ff_v4l2_buffer_enqueue(&capture->buffers[i]);
++    }
+ 
++    av_packet_unref(&s->buf_pkt);
+     s->draining = 0;
+     output->done = 0;
+     capture->done = 0;
++    capture->epipe_start = 0;
+ }
+ 
+ #define OFFSET(x) offsetof(V4L2m2mPriv, x)
