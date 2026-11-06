@@ -1,0 +1,109 @@
+From 7a8bca37e0118203d3cd0e6766ec98f3b89dced6 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Sat, 7 Nov 2026 09:03:13 +1000
+Subject: [PATCH] Add a controller topology for the Saturn pads
+
+Without a topology.xml, Kodi doesn't know which controllers the ports
+take, so it connects its default controller, which game.libretro passes
+on as RETRO_DEVICE_ANALOG with no subclass. Beetle Saturn rejects that
+("Controller 1: Unsupported Device (5)"), so a game gets no input.
+
+Add a topology with the two Saturn ports, each taking the Control Pad,
+both 3D Control Pads, the Arcade Racer, the Mission Stick and Mission
+Sticks, the Twin Stick and the mouse, and import those controller
+add-ons. The 3D Control Pad is game.controller.saturn.3d.japan and
+.3d.western in the controller project, so map both in place of
+game.controller.saturn.3d, which doesn't exist.
+
+The multitap and the Virtua Gun are left out: game.libretro can't turn
+on the core's multitap option from the topology, and the gun mapping is
+still a TODO.
+
+Assisted-by: Claude
+---
+ game.libretro.beetle-saturn/addon.xml.in      |  8 +++++++
+ .../resources/buttonmap.xml                   | 18 ++++++++++++++-
+ .../resources/topology.xml                    | 23 +++++++++++++++++++
+ 3 files changed, 48 insertions(+), 1 deletion(-)
+ create mode 100644 game.libretro.beetle-saturn/resources/topology.xml
+
+diff --git a/game.libretro.beetle-saturn/addon.xml.in b/game.libretro.beetle-saturn/addon.xml.in
+index 6841b57..4208b78 100644
+--- a/game.libretro.beetle-saturn/addon.xml.in
++++ b/game.libretro.beetle-saturn/addon.xml.in
+@@ -5,6 +5,14 @@
+ 		provider-name="Mednafen Team">
+ 	<requires>
+ 		<import addon="game.libretro" version="1.0.0"/>
++		<import addon="game.controller.saturn" version="1.0.0"/>
++		<import addon="game.controller.saturn.3d.japan" version="1.0.0"/>
++		<import addon="game.controller.saturn.3d.western" version="1.0.0"/>
++		<import addon="game.controller.saturn.arcade.racer" version="1.0.0"/>
++		<import addon="game.controller.saturn.mission.stick" version="1.0.0"/>
++		<import addon="game.controller.saturn.mission.sticks" version="1.0.0"/>
++		<import addon="game.controller.saturn.mouse" version="1.0.0"/>
++		<import addon="game.controller.saturn.twin.stick" version="1.0.0"/>
+ 	</requires>
+ 	<extension point="kodi.gameclient"
+ 			library_@PLATFORM@="@LIBRARY_FILENAME@">
+diff --git a/game.libretro.beetle-saturn/resources/buttonmap.xml b/game.libretro.beetle-saturn/resources/buttonmap.xml
+index e26c2d2..90041fb 100644
+--- a/game.libretro.beetle-saturn/resources/buttonmap.xml
++++ b/game.libretro.beetle-saturn/resources/buttonmap.xml
+@@ -15,7 +15,23 @@
+ 		<feature name="leftbumper" mapto="RETRO_DEVICE_ID_JOYPAD_L2"/>
+ 		<feature name="rightbumper" mapto="RETRO_DEVICE_ID_JOYPAD_R2"/>
+ 	</controller>
+-	<controller id="game.controller.saturn.3d" type="RETRO_DEVICE_ANALOG" subclass="0">
++	<controller id="game.controller.saturn.3d.japan" type="RETRO_DEVICE_ANALOG" subclass="0">
++		<feature name="a" mapto="RETRO_DEVICE_ID_JOYPAD_B"/>
++		<feature name="b" mapto="RETRO_DEVICE_ID_JOYPAD_A"/>
++		<feature name="c" mapto="RETRO_DEVICE_ID_JOYPAD_R"/>
++		<feature name="x" mapto="RETRO_DEVICE_ID_JOYPAD_Y"/>
++		<feature name="y" mapto="RETRO_DEVICE_ID_JOYPAD_X"/>
++		<feature name="z" mapto="RETRO_DEVICE_ID_JOYPAD_L"/>
++		<feature name="start" mapto="RETRO_DEVICE_ID_JOYPAD_START"/>
++		<feature name="up" mapto="RETRO_DEVICE_ID_JOYPAD_UP"/>
++		<feature name="down" mapto="RETRO_DEVICE_ID_JOYPAD_DOWN"/>
++		<feature name="right" mapto="RETRO_DEVICE_ID_JOYPAD_RIGHT"/>
++		<feature name="left" mapto="RETRO_DEVICE_ID_JOYPAD_LEFT"/>
++		<feature name="lefttrigger" mapto="RETRO_DEVICE_ID_JOYPAD_L2"/>
++		<feature name="righttrigger" mapto="RETRO_DEVICE_ID_JOYPAD_R2"/>
++		<feature name="analogstick" mapto="RETRO_DEVICE_INDEX_ANALOG_LEFT"/>
++	</controller>
++	<controller id="game.controller.saturn.3d.western" type="RETRO_DEVICE_ANALOG" subclass="0">
+ 		<feature name="a" mapto="RETRO_DEVICE_ID_JOYPAD_B"/>
+ 		<feature name="b" mapto="RETRO_DEVICE_ID_JOYPAD_A"/>
+ 		<feature name="c" mapto="RETRO_DEVICE_ID_JOYPAD_R"/>
+diff --git a/game.libretro.beetle-saturn/resources/topology.xml b/game.libretro.beetle-saturn/resources/topology.xml
+new file mode 100644
+index 0000000..cdf6345
+--- /dev/null
++++ b/game.libretro.beetle-saturn/resources/topology.xml
+@@ -0,0 +1,23 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<logicaltopology>
++	<port type="controller" id="1">
++		<accepts controller="game.controller.saturn"/>
++		<accepts controller="game.controller.saturn.3d.western"/>
++		<accepts controller="game.controller.saturn.3d.japan"/>
++		<accepts controller="game.controller.saturn.arcade.racer"/>
++		<accepts controller="game.controller.saturn.mission.stick"/>
++		<accepts controller="game.controller.saturn.mission.sticks"/>
++		<accepts controller="game.controller.saturn.twin.stick"/>
++		<accepts controller="game.controller.saturn.mouse"/>
++	</port>
++	<port type="controller" id="2">
++		<accepts controller="game.controller.saturn"/>
++		<accepts controller="game.controller.saturn.3d.western"/>
++		<accepts controller="game.controller.saturn.3d.japan"/>
++		<accepts controller="game.controller.saturn.arcade.racer"/>
++		<accepts controller="game.controller.saturn.mission.stick"/>
++		<accepts controller="game.controller.saturn.mission.sticks"/>
++		<accepts controller="game.controller.saturn.twin.stick"/>
++		<accepts controller="game.controller.saturn.mouse"/>
++	</port>
++</logicaltopology>
+-- 
+2.55.0
+

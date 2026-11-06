@@ -19,6 +19,10 @@
             "commit": "b912b8abe657a702e666515804d1ea037db38c2a"
         },
         {
+            "type": "patch",
+            "path": "game.libretro.beetle-saturn-001-controller-topology.patch"
+        },
+        {
             "type": "file",
             "path": "../../tools/gen-addon-metainfo.sh"
         }
