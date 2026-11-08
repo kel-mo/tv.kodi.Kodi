@@ -4,6 +4,7 @@ runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.openjdk17
+  - org.freedesktop.Sdk.Extension.llvm22
 command: kodi
 rename-icon: kodi
 rename-desktop-file: kodi.desktop
@@ -940,6 +941,7 @@ modules:
   - addons/game.libretro.prboom/game.libretro.prboom.json
   - addons/game.libretro.prosystem/game.libretro.prosystem.json
   - addons/game.libretro.quicknes/game.libretro.quicknes.json
+  - addons/game.libretro.rpcs3/game.libretro.rpcs3.json
   - addons/game.libretro.sameboy/game.libretro.sameboy.json
   - addons/game.libretro.stella/game.libretro.stella.json
   - addons/game.libretro.supafaust/game.libretro.supafaust.json
@@ -1374,6 +1376,11 @@ add-extensions:
     no-autodownload: false
   tv.kodi.Kodi.Addon.game.libretro.quicknes:
     directory: lib/kodi/addons/game.libretro.quicknes
+    bundle: true
+    autodelete: true
+    no-autodownload: false
+  tv.kodi.Kodi.Addon.game.libretro.rpcs3:
+    directory: lib/kodi/addons/game.libretro.rpcs3
     bundle: true
     autodelete: true
     no-autodownload: false

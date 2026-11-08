@@ -1,0 +1,217 @@
+{
+    "name": "game.libretro.rpcs3",
+    "buildsystem": "cmake-ninja",
+    "build-options": {
+        "no-debuginfo": true,
+        "cflags": "-g0",
+        "cxxflags": "-g0"
+    },
+    "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DPACKAGE_ZIP=ON",
+        "-DCMAKE_INSTALL_PREFIX=/app/lib/kodi/addons",
+        "-DCMAKE_PREFIX_PATH=/app"
+    ],
+    "sources": [
+        {
+            "type": "git",
+            "url": "https://github.com/kel-mo/game.libretro.rpcs3",
+            "commit": "756e203ad6e2c8b89834764a023fa5db23eac6bd"
+        },
+        {
+            "type": "file",
+            "path": "../../tools/gen-addon-metainfo.sh"
+        }
+    ],
+    "modules": [
+        {
+            "name": "glew",
+            "buildsystem": "cmake-ninja",
+            "subdir": "build/cmake",
+            "build-options": {
+                "no-debuginfo": true,
+                "cflags": "-g0",
+                "cxxflags": "-g0"
+            },
+            "config-opts": [
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+                "-DBUILD_SHARED_LIBS=OFF",
+                "-DBUILD_UTILS=OFF",
+                "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                "-DCMAKE_INSTALL_LIBDIR=lib"
+            ],
+            "cleanup": [
+                "/include/GL/glew.h",
+                "/include/GL/glxew.h",
+                "/include/GL/wglew.h",
+                "/include/GL/eglew.h",
+                "/lib/libGLEW.a",
+                "/lib/cmake/glew",
+                "/lib/pkgconfig/glew.pc"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/nigels-com/glew/releases/download/glew-2.2.0/glew-2.2.0.tgz",
+                    "sha256": "d4fc82893cfb00109578d0a1a2337fb8ca335b3ceccf97b97e5cc7f08e4353e1"
+                }
+            ]
+        },
+        {
+            "name": "libretro-rpcs3",
+            "buildsystem": "cmake-ninja",
+            "builddir": true,
+            "build-options": {
+                "no-debuginfo": true,
+                "cflags": "-g0 -DGLEW_NO_GLU",
+                "cxxflags": "-g0 -DGLEW_NO_GLU",
+                "append-path": "/usr/lib/sdk/llvm22/bin",
+                "append-ld-library-path": "/usr/lib/sdk/llvm22/lib",
+                "ldflags": "-fuse-ld=lld",
+                "env": {
+                    "CC": "clang",
+                    "CXX": "clang++",
+                    "AR": "llvm-ar",
+                    "RANLIB": "llvm-ranlib"
+                }
+            },
+            "config-opts": [
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+                "-DCMAKE_PREFIX_PATH=/app",
+                "-DBUILD_SHARED_LIBS=OFF",
+                "-DUSE_NATIVE_INSTRUCTIONS=OFF",
+                "-DUSE_PRECOMPILED_HEADERS=OFF",
+                "-DBUILD_LLVM=OFF",
+                "-DSTATIC_LINK_LLVM=OFF",
+                "-DLLVM_DIR=/usr/lib/sdk/llvm22/lib/cmake/llvm",
+                "-DUSE_SDL=OFF",
+                "-DUSE_FAUDIO=OFF",
+                "-DUSE_LIBEVDEV=OFF",
+                "-DUSE_DISCORD_RPC=OFF",
+                "-DUSE_SYSTEM_CURL=ON",
+                "-DUSE_SYSTEM_LIBPNG=ON",
+                "-DUSE_SYSTEM_ZLIB=ON",
+                "-DUSE_SYSTEM_ZSTD=ON",
+                "-DUSE_SYSTEM_PUGIXML=ON",
+                "-DUSE_SYSTEM_LIBUSB=ON",
+                "-DUSE_SYSTEM_FFMPEG=ON",
+                "-DOpenGL_GL_PREFERENCE=LEGACY",
+                "-DCMAKE_DISABLE_FIND_PACKAGE_Wayland=ON",
+                "-DGLEW_USE_STATIC_LIBS=ON",
+                "-Wno-dev"
+            ],
+            "make-args": [
+                "rpcs3_libretro"
+            ],
+            "no-make-install": true,
+            "post-install": [
+                "install -Dm755 \"$(find . -path '*/rpcs3/libretro/rpcs3_libretro.so' -print -quit)\" /app/lib/libretro/rpcs3_libretro.so",
+                "llvm-strip /app/lib/libretro/rpcs3_libretro.so"
+            ],
+            "cleanup": [
+                "/lib/libretro"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://github.com/WizzardSK/rpcs3-libretro.git",
+                    "commit": "74b3fa37beb294418230b1f039bab4de97f18479",
+                    "disable-submodules": true
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/asmjit/asmjit.git",
+                    "commit": "416f7356967c1f66784dc1580fe157f9406d8bff",
+                    "dest": "3rdparty/asmjit/asmjit"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/KhronosGroup/glslang.git",
+                    "commit": "f0bd0257c308b9a26562c1a30c4748a0219cc951",
+                    "dest": "3rdparty/glslang/glslang"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/RPCS3/yaml-cpp.git",
+                    "commit": "51a5d623e3fde1f58829a56ba910f1cb33596222",
+                    "dest": "3rdparty/yaml-cpp/yaml-cpp"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/glennrp/libpng.git",
+                    "commit": "cd952f49f95bb27154ae77dbb103032d95f6e580",
+                    "dest": "3rdparty/libpng/libpng"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/curl/curl.git",
+                    "commit": "01346829096c61b372692f6dc43ffa778c6caccd",
+                    "dest": "3rdparty/curl/curl"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/wolfSSL/wolfssl.git",
+                    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+                    "dest": "3rdparty/wolfssl/wolfssl"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/RPCS3/soundtouch.git",
+                    "commit": "a0fba77b6f9cfbdb71f8bbec58b6ac4e5e3b1097",
+                    "dest": "3rdparty/SoundTouch/soundtouch"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/miniupnp/miniupnp.git",
+                    "commit": "d66872e34d9ff83a07f8b71371b13419b2089953",
+                    "dest": "3rdparty/miniupnp/miniupnp"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/thestk/rtmidi.git",
+                    "commit": "1e5b49925aa60065db52de44c366d446a902547b",
+                    "dest": "3rdparty/rtmidi/rtmidi"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/facebook/zstd.git",
+                    "commit": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+                    "dest": "3rdparty/zstd/zstd"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/nothings/stb.git",
+                    "commit": "013ac3beddff3dbffafd5177e7972067cd2b5083",
+                    "dest": "3rdparty/stblib/stb"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/xioTechnologies/Fusion.git",
+                    "commit": "9325424011892abacc0ce42b8bb1a8ae20264b9b",
+                    "dest": "3rdparty/fusion/fusion"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git",
+                    "commit": "3aa921224c154a0d2c43912bc88e1c42ce1f7607",
+                    "dest": "3rdparty/GPUOpen/VulkanMemoryAllocator"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/protocolbuffers/protobuf.git",
+                    "commit": "edaa823d8b36a8656d7b2b9241b7d0bfe50af878",
+                    "dest": "3rdparty/protobuf/protobuf"
+                },
+                {
+                    "type": "patch",
+                    "path": "libretro-rpcs3-001-enable-cellaudio-buffering.patch"
+                }
+            ]
+        }
+    ],
+    "post-install": [
+        "bash $FLATPAK_BUILDER_BUILDDIR/gen-addon-metainfo.sh game.libretro.rpcs3"
+    ]
+}

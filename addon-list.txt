@@ -66,6 +66,7 @@ game.libretro.pokemini
 game.libretro.prboom
 game.libretro.prosystem
 game.libretro.quicknes
+game.libretro.rpcs3
 game.libretro.sameboy
 game.libretro.stella
 game.libretro.supafaust

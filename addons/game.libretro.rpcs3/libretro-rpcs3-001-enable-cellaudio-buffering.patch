@@ -1,0 +1,28 @@
+diff --git a/rpcs3/libretro/libretro_core.cpp b/rpcs3/libretro/libretro_core.cpp
+index 861a44116..fca6ae31d 100644
+--- a/rpcs3/libretro/libretro_core.cpp
++++ b/rpcs3/libretro/libretro_core.cpp
+@@ -997,8 +997,8 @@ static void libretro_apply_core_options()
+     // RetroArch keeps the buffer, and cellAudio's on top of it is only latency
+     // the pictures do not have (NNshi, Project Diva); time stretching works
+     // only with that buffer on.
+-    g_cfg.audio.enable_buffering.set(false);
+-    g_cfg.audio.enable_time_stretching.set(false);
++    g_cfg.audio.enable_buffering.set(true);
++    g_cfg.audio.enable_time_stretching.set(true);
+ 
+     // Audio Format: the speakers the PS3 reports, which decides the mix a game
+     // makes. A core cannot ask RetroArch for its Output Layout, and offering
+@@ -2876,9 +2876,9 @@ bool retro_load_game(const struct retro_game_info* game)
+     g_cfg.video.disable_FIFO_reordering.set(false);  // Keep FIFO reordering enabled
+ 
+     // Audio optimizations
+-    g_cfg.audio.enable_buffering.set(false);  // RetroArch buffers; see rpcs3_audio_buffering
+-    g_cfg.audio.desired_buffer_duration.set(100);  // 100ms buffer for smoother audio in libretro
+-    g_cfg.audio.enable_time_stretching.set(false);  // Disable time stretching (RetroArch handles sync)
++    g_cfg.audio.enable_buffering.set(true);
++    g_cfg.audio.desired_buffer_duration.set(34);
++    g_cfg.audio.enable_time_stretching.set(true);
+ 
+ 
+     // Configure audio - set explicit stereo layout to avoid "Unsupported layout 0" error
