@@ -78,7 +78,6 @@ game.libretro.virtualjaguar
 game.libretro.yabasanshiro
 game.libretro.yabause
 game.shader.presets
-imagedecoder.heif
 imagedecoder.mpo
 imagedecoder.raw
 imagedecoder.svg

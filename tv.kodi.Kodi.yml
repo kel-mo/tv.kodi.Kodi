@@ -952,7 +952,6 @@ modules:
   - addons/game.libretro.yabasanshiro/game.libretro.yabasanshiro.json
   - addons/game.libretro.yabause/game.libretro.yabause.json
   - addons/game.shader.presets/game.shader.presets.json
-  - addons/imagedecoder.heif/imagedecoder.heif.json
   - addons/imagedecoder.mpo/imagedecoder.mpo.json
   - addons/imagedecoder.raw/imagedecoder.raw.json
   - addons/imagedecoder.svg/imagedecoder.svg.json
@@ -1435,11 +1434,6 @@ add-extensions:
     no-autodownload: false
   tv.kodi.Kodi.Addon.game.shader.presets:
     directory: lib/kodi/addons/game.shader.presets
-    bundle: true
-    autodelete: true
-    no-autodownload: false
-  tv.kodi.Kodi.Addon.imagedecoder.heif:
-    directory: lib/kodi/addons/imagedecoder.heif
     bundle: true
     autodelete: true
     no-autodownload: false
