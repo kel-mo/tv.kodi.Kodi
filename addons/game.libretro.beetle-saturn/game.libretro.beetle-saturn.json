@@ -16,11 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.beetle-saturn",
-            "commit": "b912b8abe657a702e666515804d1ea037db38c2a"
-        },
-        {
-            "type": "patch",
-            "path": "game.libretro.beetle-saturn-001-controller-topology.patch"
+            "commit": "01f6d949c1722874110507600fa570448b2b48e9"
         },
         {
             "type": "file",
@@ -46,8 +42,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://github.com/libretro/beetle-saturn-libretro/archive/2ce77e20a956dc9a67b8d3d527f477b984310feb.tar.gz",
-                    "sha256": "78035331aec59f5c33278d46b688e9523bfecf6a3d40e62691695ce19e8e47d4"
+                    "url": "https://github.com/libretro/beetle-saturn-libretro/archive/30f4c12072d265c9e553dcb29386059114945dea.tar.gz",
+                    "sha256": "b00984370ccd4ef4d5140c44ab5fcedaca6113445d95722774ceba1021288754"
                 }
             ]
         }
