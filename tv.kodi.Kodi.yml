@@ -820,6 +820,8 @@ modules:
         path: patches/kodi-videoplayer-drmprime-v4l2m2m-first.patch
       - type: patch
         path: patches/kodi-videoplayer-stop-open-deadlock.patch
+      - type: patch
+        path: patches/kodi-retroplayer-audio-cushion.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
