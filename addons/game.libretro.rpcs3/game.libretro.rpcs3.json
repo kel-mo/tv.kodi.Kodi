@@ -115,93 +115,74 @@
             ],
             "sources": [
                 {
-                    "type": "git",
-                    "url": "https://github.com/WizzardSK/rpcs3-libretro.git",
-                    "commit": "74b3fa37beb294418230b1f039bab4de97f18479",
-                    "disable-submodules": true
+                    "type": "archive",
+                    "url": "https://github.com/WizzardSK/rpcs3-libretro/archive/74b3fa37beb294418230b1f039bab4de97f18479.tar.gz",
+                    "sha256": "993ae42512bd45765a9cf2835c49628b1aaec56f3d16fc0a60d204fc800164f3"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/asmjit/asmjit.git",
-                    "commit": "416f7356967c1f66784dc1580fe157f9406d8bff",
+                    "type": "archive",
+                    "url": "https://github.com/asmjit/asmjit/archive/416f7356967c1f66784dc1580fe157f9406d8bff.tar.gz",
+                    "sha256": "de254de095aff47cb3b07c73f7ed7e0e86e2b10ca5518cd8e7fdf9d7d1a4c707",
                     "dest": "3rdparty/asmjit/asmjit"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/KhronosGroup/glslang.git",
-                    "commit": "f0bd0257c308b9a26562c1a30c4748a0219cc951",
+                    "type": "archive",
+                    "url": "https://github.com/KhronosGroup/glslang/archive/f0bd0257c308b9a26562c1a30c4748a0219cc951.tar.gz",
+                    "sha256": "bd58dca4dac67dcf7640292d7d63e0416274d40ee2200f7301878cec11ac6647",
                     "dest": "3rdparty/glslang/glslang"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/RPCS3/yaml-cpp.git",
-                    "commit": "51a5d623e3fde1f58829a56ba910f1cb33596222",
+                    "type": "archive",
+                    "url": "https://github.com/RPCS3/yaml-cpp/archive/51a5d623e3fde1f58829a56ba910f1cb33596222.tar.gz",
+                    "sha256": "20a60c92049f8c2449effbe3abe17aab4ca4159cdc2ab829ea6624676a2fe66a",
                     "dest": "3rdparty/yaml-cpp/yaml-cpp"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/glennrp/libpng.git",
-                    "commit": "cd952f49f95bb27154ae77dbb103032d95f6e580",
-                    "dest": "3rdparty/libpng/libpng"
-                },
-                {
-                    "type": "git",
-                    "url": "https://github.com/curl/curl.git",
-                    "commit": "01346829096c61b372692f6dc43ffa778c6caccd",
-                    "dest": "3rdparty/curl/curl"
-                },
-                {
-                    "type": "git",
-                    "url": "https://github.com/wolfSSL/wolfssl.git",
-                    "commit": "3c5eead44904df64e6a5a1f4ebdce377d35a849a",
+                    "type": "archive",
+                    "url": "https://github.com/wolfSSL/wolfssl/archive/3c5eead44904df64e6a5a1f4ebdce377d35a849a.tar.gz",
+                    "sha256": "20fceb75ecac0fdb241f6d683e8cd1b579db0297f6d506d13eca9656262d72a5",
                     "dest": "3rdparty/wolfssl/wolfssl"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/RPCS3/soundtouch.git",
-                    "commit": "a0fba77b6f9cfbdb71f8bbec58b6ac4e5e3b1097",
+                    "type": "archive",
+                    "url": "https://github.com/RPCS3/soundtouch/archive/a0fba77b6f9cfbdb71f8bbec58b6ac4e5e3b1097.tar.gz",
+                    "sha256": "4337ccfb874da5a3f9eeb8d68a589464fbe3a8151df1818ee8934b4534cf6f50",
                     "dest": "3rdparty/SoundTouch/soundtouch"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/miniupnp/miniupnp.git",
-                    "commit": "d66872e34d9ff83a07f8b71371b13419b2089953",
+                    "type": "archive",
+                    "url": "https://github.com/miniupnp/miniupnp/archive/d66872e34d9ff83a07f8b71371b13419b2089953.tar.gz",
+                    "sha256": "83eb848b067a5e84582018cf8c3c7f283738e5eb47a8f148a05b41f433134166",
                     "dest": "3rdparty/miniupnp/miniupnp"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/thestk/rtmidi.git",
-                    "commit": "1e5b49925aa60065db52de44c366d446a902547b",
+                    "type": "archive",
+                    "url": "https://github.com/thestk/rtmidi/archive/1e5b49925aa60065db52de44c366d446a902547b.tar.gz",
+                    "sha256": "c5090c14edb3e3f82dd63589041f516bb24b78091aa82574fdc17d33ee62361e",
                     "dest": "3rdparty/rtmidi/rtmidi"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/facebook/zstd.git",
-                    "commit": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
-                    "dest": "3rdparty/zstd/zstd"
-                },
-                {
-                    "type": "git",
-                    "url": "https://github.com/nothings/stb.git",
-                    "commit": "013ac3beddff3dbffafd5177e7972067cd2b5083",
+                    "type": "archive",
+                    "url": "https://github.com/nothings/stb/archive/013ac3beddff3dbffafd5177e7972067cd2b5083.tar.gz",
+                    "sha256": "b01aa93e1a968aed55f43e072c98ee401d2f20e897aabdb1a166c7166886ed11",
                     "dest": "3rdparty/stblib/stb"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/xioTechnologies/Fusion.git",
-                    "commit": "9325424011892abacc0ce42b8bb1a8ae20264b9b",
+                    "type": "archive",
+                    "url": "https://github.com/xioTechnologies/Fusion/archive/9325424011892abacc0ce42b8bb1a8ae20264b9b.tar.gz",
+                    "sha256": "71ea11ef44b6533580213efea3dd7441db99c76b27ddd25abb5aeed89565f61f",
                     "dest": "3rdparty/fusion/fusion"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git",
-                    "commit": "3aa921224c154a0d2c43912bc88e1c42ce1f7607",
+                    "type": "archive",
+                    "url": "https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/archive/3aa921224c154a0d2c43912bc88e1c42ce1f7607.tar.gz",
+                    "sha256": "5935dc47d8659bb681f1b7218f903ec171d10c39509752fd64eb2c9daf601ced",
                     "dest": "3rdparty/GPUOpen/VulkanMemoryAllocator"
                 },
                 {
-                    "type": "git",
-                    "url": "https://github.com/protocolbuffers/protobuf.git",
-                    "commit": "edaa823d8b36a8656d7b2b9241b7d0bfe50af878",
+                    "type": "archive",
+                    "url": "https://github.com/protocolbuffers/protobuf/archive/edaa823d8b36a8656d7b2b9241b7d0bfe50af878.tar.gz",
+                    "sha256": "a54e2dd9b137f07bdaec0748b7948b0c41859893a9acc63fcb3a514db5f1e609",
                     "dest": "3rdparty/protobuf/protobuf"
                 },
                 {
