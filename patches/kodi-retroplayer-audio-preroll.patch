@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Mon, 09 Nov 2026 21:34:31 +1000
+Subject: [PATCH] [RetroPlayer] Queue silence ahead of a game's sound
+
+A game makes its sound in real time, so the only lead the sink ever
+has is what was queued before it pulled its first period. That depends
+on when the sink happened to start, and since 9b976e9b4a the delay it
+settles at is held for the rest of the game. On PipeWire with a 50 ms
+period the same game settled anywhere from 110 to 185 ms, and the lower
+it settled, the more the sink underran: with the RPCS3 core, which
+supplies its sound at exactly real time, runs that settled at 111 and
+117 ms underran 657 and 592 times in 150 s, runs at 137 and 140 ms 23
+times and once, and the four runs at 144 ms or more not at all. The
+drift correction can't fix that, as resampling only grows the stream's
+own buffer ahead of the sink, not what the sink has queued.
+
+Queue 100 ms of silence ahead of the first sound, so the sink always
+starts with that much queued. The engine refuses sound while it reopens
+the sink for a new stream, so what is refused goes in ahead of the next
+packets, for up to 60 of them.
+
+A flush empties the sink too, so it is followed by the same silence.
+A pause, mute or speed change stops the game's sound, and a sink that
+plays the engine's silence meanwhile drains its lead, so when the sound
+comes back with less queued in the sink than before, the difference is
+queued as silence. The sink's share is averaged over a second, as it
+moves a period at a time, and it can come back up to one period high,
+which the drift correction trims within about 10 s.
+
+Tested on Linux with PipeWire, 150 s per run. Skate 3 on the RPCS3 core
+with its sound unbuffered, headless and on 60 and 120 Hz screens:
+16 runs settled at 200-264 ms with no underruns and at least one period
+queued once the sound had started, and after 10 s of pause or
+fast-forward the sink kept at least one period queued, where without
+the top-up it could resume with none. The cost is 40 to 80 ms more
+delay than a stock start. Simpsons Hit & Run on LRPS2, which overfills
+at boot and is flushed twice, settled at 326-328 ms with no underruns;
+without the silence after the flush it settled at 121 ms with 166
+underruns on one run and 183 ms on another.
+
+Assisted-By: Claude
+---
+  .../RetroPlayer/streams/RetroPlayerAudio.cpp  | 51 +++++++++++++++++++
+  .../RetroPlayer/streams/RetroPlayerAudio.h    |  4 ++
+  2 files changed, 55 insertions(+)
+
+diff --git a/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp b/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp
+index db53f6e51f..284ab5c539 100644
+--- a/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp
++++ b/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp
+@@ -21,6 +21,7 @@
+ #include <algorithm>
+ #include <chrono>
+ #include <cmath>
++#include <vector>
+ 
+ using namespace KODI;
+ using namespace RETRO;
+@@ -41,6 +42,9 @@ const double DRIFT_RANGE = 0.02; // seconds off the held delay for the full corr
+ const double MAX_DRIFT_CORRECTION = 0.005;
+ const double DELAY_SMOOTHING = 1.0; // seconds
+ 
++const double PREROLL = 0.1; // seconds of silence ahead of the sound
++const unsigned int PREROLL_TRIES = 60; // packets, while the engine reopens the sink
++
+ // How long to stay quiet between log lines.
+ const std::chrono::seconds DROP_LOG_INTERVAL{10};
+ 
+@@ -113,7 +117,10 @@ bool CRetroPlayerAudio::OpenStream(const StreamProperties& properties)
+   m_resampleRatio = 1.0;
+   m_settledSecs = 0.0;
+   m_maxDelay = 0.0;
++  m_prerollFrames = static_cast<unsigned int>(PREROLL * iSampleRate);
++  m_prerollTries = 0;
+   m_playingDelay = 0.0;
++  m_playingFloor = 0.0;
+   m_framesToSkip = 0;
+ 
+   if (m_pAudioStream == nullptr)
+@@ -137,6 +144,9 @@ void CRetroPlayerAudio::AddStreamData(const StreamPacket& packet)
+   {
+     if (m_pAudioStream)
+     {
++      if (m_prerollFrames > 0)
++        AddPreroll();
++
+       const double delaySecs = m_pAudioStream->GetDelay();
+ 
+       // What the sink and the engine hold, which the delay never falls below.
+@@ -156,7 +166,17 @@ void CRetroPlayerAudio::AddStreamData(const StreamPacket& packet)
+       // runs dry and gets padded again.
+       const double sampleRate = m_pAudioStream->GetSampleRate();
+       if (m_restoreDelay.exchange(false) && m_playingDelay > 0.0)
++      {
+         m_framesToSkip = static_cast<unsigned int>(MAX_DELAY * sampleRate);
++        // A sink that played the silence itself drained the lead instead
++        if (floorSecs < m_playingFloor)
++        {
++          m_prerollFrames = static_cast<unsigned int>((m_playingFloor - floorSecs) * sampleRate);
++          m_prerollTries = 0;
++          if (m_prerollFrames > 0)
++            AddPreroll();
++        }
++      }
+ 
+       unsigned int skipFrames = 0;
+       if (m_framesToSkip > 0)
+@@ -169,7 +189,14 @@ void CRetroPlayerAudio::AddStreamData(const StreamPacket& packet)
+       }
+ 
+       if (m_framesToSkip == 0)
++      {
+         m_playingDelay = delaySecs;
++        // Smoothed, as the sink's share steps a period at a time
++        if (m_playingFloor == 0.0)
++          m_playingFloor = floorSecs;
++        m_playingFloor +=
++            std::min(1.0, frameCount / sampleRate / DELAY_SMOOTHING) * (floorSecs - m_playingFloor);
++      }
+ 
+       if (delaySecs > floorSecs + MAX_DELAY)
+       {
+@@ -181,6 +208,10 @@ void CRetroPlayerAudio::AddStreamData(const StreamPacket& packet)
+         m_framesToSkip = 0;
+         CLog::Log(LOGDEBUG, "RetroPlayer[AUDIO]: Audio delay ({:0.2f} ms) is too high - flushing",
+                   delaySecs * 1000);
++        // The flush took the lead with it
++        m_prerollFrames = static_cast<unsigned int>(PREROLL * sampleRate);
++        m_prerollTries = 0;
++        AddPreroll();
+       }
+ 
+       UpdateResampleRatio(frameCount / sampleRate, delaySecs);
+@@ -260,6 +291,26 @@ void CRetroPlayerAudio::UpdateResampleRatio(double packetSecs, double delaySecs)
+   }
+ }
+ 
++void CRetroPlayerAudio::AddPreroll()
++{
++  const size_t frameSize = static_cast<size_t>(m_pAudioStream->GetChannelCount()) *
++                           (CAEUtil::DataFormatToBits(m_pAudioStream->GetDataFormat()) >> 3);
++  const std::vector<uint8_t> silence(m_prerollFrames * frameSize, 0);
++  const uint8_t* data = silence.data();
++  const unsigned int accepted = m_pAudioStream->AddData(&data, 0, m_prerollFrames, nullptr);
++
++  CLog::Log(LOGDEBUG, "RetroPlayer[AUDIO]: Queued {} of {} frames of silence ahead of the sound",
++            accepted, m_prerollFrames);
++
++  // What was refused goes in ahead of the next packet
++  m_prerollFrames -= std::min(accepted, m_prerollFrames);
++  if (m_prerollFrames > 0 && ++m_prerollTries >= PREROLL_TRIES)
++  {
++    CLog::Log(LOGDEBUG, "RetroPlayer[AUDIO]: Giving up on {} frames of silence", m_prerollFrames);
++    m_prerollFrames = 0;
++  }
++}
++
+ void CRetroPlayerAudio::CloseStream()
+ {
+   if (m_pAudioStream)
+diff --git a/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.h b/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.h
+index 5ce966e3a3..0139711fcd 100644
+--- a/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.h
++++ b/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.h
+@@ -71,6 +71,7 @@ public:
+ 
+ private:
+   void UpdateResampleRatio(double packetSecs, double delaySecs);
++  void AddPreroll();
+ 
+   CRPProcessInfo& m_processInfo;
+   IAE::StreamPtr m_pAudioStream;
+@@ -80,8 +81,11 @@ private:
+   double m_heldDelay = 0.0;
+   double m_settledSecs = 0.0;
+   double m_maxDelay = 0.0;
++  unsigned int m_prerollFrames = 0;
++  unsigned int m_prerollTries = 0;
+   std::atomic<bool> m_restoreDelay{false};
+   double m_playingDelay = 0.0;
++  double m_playingFloor = 0.0;
+   unsigned int m_framesToSkip = 0;
+ 
+   uint64_t m_droppedFrames = 0;
+-- 
+2.53.0
