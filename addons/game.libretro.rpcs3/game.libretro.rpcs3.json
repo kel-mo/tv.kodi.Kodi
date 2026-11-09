@@ -184,10 +184,6 @@
                     "url": "https://github.com/protocolbuffers/protobuf/archive/edaa823d8b36a8656d7b2b9241b7d0bfe50af878.tar.gz",
                     "sha256": "a54e2dd9b137f07bdaec0748b7948b0c41859893a9acc63fcb3a514db5f1e609",
                     "dest": "3rdparty/protobuf/protobuf"
-                },
-                {
-                    "type": "patch",
-                    "path": "libretro-rpcs3-001-enable-cellaudio-buffering.patch"
                 }
             ]
         }
