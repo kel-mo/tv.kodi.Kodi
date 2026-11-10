@@ -1,0 +1,267 @@
+From ed71d906411f871815a89e9f1741eb73fe3e4b39 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Tue, 10 Nov 2026 15:47:12 +1000
+Subject: [PATCH] [AudioEngine] ActiveAE: Put a period of silence ahead of a
+ game's sound
+
+A game makes its sound as it plays, so it can never get ahead of the
+sink. When a game starts, the sink plays its own silence until the
+game's first sound arrives. That sound waits behind whichever silence
+write is under way, so the lead it starts with is random, and real-time
+supply never adds to it. On PipeWire, with a 50 ms period, Skate 3 on
+the RPCS3 core settled at 111 to 185 ms of delay, and 5 of 9 starts ran
+dry, from once to 657 times in 150 s. A flush drops what the engine had
+queued, so the stream starts again with no lead, and a stream fed just
+in time rarely gives the sink the chance to time out and play its own
+silence, so the sink waits on each buffer instead.
+
+A new stream option, AESTREAM_REALTIME, marks a stream like this, and
+RetroPlayer sets it. It isn't offered to add-ons. The sink raises a
+flag when it starts a run of its own silence, and a single-stream flush
+of a real-time stream raises it too. While the flag is up, the engine
+sends one buffer of silence, one sink period (at most 100 ms), ahead of
+the real-time stream's next buffer. It is counted like the stream's own
+sound, so the delay the stream reports includes it.
+
+The silence is skipped, and not tried again, when the engine's silence
+buffers are all in use or another stream is mixed first in that pass.
+On ALSA and PulseAudio the device already holds the sink's silence, so
+the period adds to that, and after a start or a flush it stays. After a
+pause, RetroPlayer already skips the game's sound back to the delay it
+had before, which takes the period back out.
+
+Tested on Linux with PipeWire, 150 s per run. Skate 3 on RPCS3: none
+of 15 starts ran dry, and the delay settled at 159 to 212 ms. The lead
+after a start still varies by about a period: in the 4 lowest (159 to
+168 ms) PipeWire had to wait on the engine at times, though it never
+ran dry. Pause and fast-forward still caused one underrun each while
+the game's sound was stopped; once the sound came back, at least one
+period stayed queued. The Simpsons: Hit & Run on LRPS2, which is
+flushed twice at boot, settled at 198 and 201 ms with no underruns;
+without the flag on flush it ran dry 3 and 6 times at boot.
+
+Assisted-by: Claude
+---
+ .../AudioEngine/Engines/ActiveAE/ActiveAE.cpp | 24 +++++++++++++++++++
+ .../AudioEngine/Engines/ActiveAE/ActiveAE.h   |  5 ++++
+ .../Engines/ActiveAE/ActiveAESink.cpp         | 17 +++++++++++++
+ .../Engines/ActiveAE/ActiveAESink.h           |  1 +
+ .../Engines/ActiveAE/ActiveAEStream.h         |  1 +
+ xbmc/cores/AudioEngine/Utils/AEStreamData.h   |  1 +
+ .../RetroPlayer/streams/RetroPlayerAudio.cpp  |  3 ++-
+ 7 files changed, 51 insertions(+), 1 deletion(-)
+
+diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp
+index 52d03d244c..c62914f2f2 100644
+--- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp
++++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp
+@@ -1579,6 +1579,9 @@ CActiveAEStream* CActiveAE::CreateStream(MsgStreamNew *streamMsg)
+   if (streamMsg->options & AESTREAM_FORCE_RESAMPLE)
+     stream->m_forceResampler = true;
+ 
++  if (streamMsg->options & AESTREAM_REALTIME)
++    stream->m_realtime = true;
++
+   stream->m_pClock = streamMsg->clock;
+ 
+   m_streams.push_back(stream);
+@@ -1651,6 +1654,9 @@ void CActiveAE::SFlushStream(CActiveAEStream *stream)
+   if (m_streams.size() == 1)
+   {
+     FlushEngine(true);
++    // Fed just in time, the sink may not time out and pad
++    if (stream->m_realtime)
++      m_stats.SetSinkStarved(true);
+   }
+ 
+   m_stats.UpdateStream(stream);
+@@ -2185,6 +2191,7 @@ bool CActiveAE::RunStages()
+     if (m_mode != MODE_RAW)
+     {
+       CSampleBuffer *out = NULL;
++      const bool sinkStarved = m_stats.IsSinkStarved();
+       if (!m_sounds_playing.empty() && m_streams.empty())
+       {
+         if (m_silenceBuffers && !m_silenceBuffers->m_freeSamples.empty())
+@@ -2223,6 +2230,21 @@ bool CActiveAE::RunStages()
+         {
+           CSampleBuffer *tmp = SyncStream(*it);
+           m_stats.UpdateStream(*it);
++
++          // A real-time stream can't catch up on the sink's silence, so it gets a period of lead
++          if (!tmp && !out && (*it)->m_realtime && sinkStarved && m_silenceBuffers &&
++              !m_silenceBuffers->m_freeSamples.empty())
++          {
++            tmp = m_silenceBuffers->GetFreeBuffer();
++            for (int i = 0; i < tmp->pkt->planes; i++)
++              memset(tmp->pkt->data[i], 0, tmp->pkt->linesize);
++            tmp->pkt->nb_samples = tmp->pkt->max_nb_samples;
++            tmp->pkt->pause_burst_ms = 0;
++            CLog::Log(LOGDEBUG,
++                      "ActiveAE - sink starved, {} ms of silence ahead of real-time stream {}",
++                      tmp->pkt->nb_samples * 1000 / tmp->pkt->config.sample_rate, (*it)->m_id);
++          }
++
+           if (tmp)
+           {
+             if (!out)
+@@ -2490,6 +2512,8 @@ bool CActiveAE::RunStages()
+         int samples = (m_mode == MODE_TRANSCODE) ? 1 : out->pkt->nb_samples;
+         m_stats.AddSamples(samples, m_streams);
+         m_sinkBuffers->m_inputSamples.push_back(out);
++        if (sinkStarved)
++          m_stats.SetSinkStarved(false);
+       }
+     }
+     // pass through
+diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.h b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.h
+index 38b3b54524..5f8f37303c 100644
+--- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.h
++++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.h
+@@ -16,6 +16,7 @@
+ #include "threads/SystemClock.h"
+ #include "threads/Thread.h"
+ 
++#include <atomic>
+ #include <list>
+ #include <memory>
+ #include <queue>
+@@ -204,6 +205,9 @@ public:
+   void SetSinkCacheTotal(float time) { m_sinkCacheTotal = time; }
+   void SetSinkLatency(float time) { m_sinkLatency = time; }
+   void SetSinkNeedIec(bool needIEC) { m_sinkNeedIecPack = needIEC; }
++  // The sink ran out of sound or was flushed, until the engine sends sound again
++  void SetSinkStarved(bool starved) { m_sinkStarved = starved; }
++  bool IsSinkStarved() const { return m_sinkStarved; }
+   bool IsSuspended();
+   AEAudioFormat GetCurrentSinkFormat();
+ protected:
+@@ -216,6 +220,7 @@ protected:
+   AEAudioFormat m_sinkFormat;
+   bool m_pcmOutput;
+   bool m_sinkNeedIecPack{false};
++  std::atomic<bool> m_sinkStarved{false};
+   CCriticalSection m_lock;
+   struct StreamStats
+   {
+diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
+index 2b713dcf80..d83311c36c 100644
+--- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
++++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
+@@ -263,6 +263,9 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+           m_extError = false;
+           m_extSilenceTimer.Set(0ms);
+           m_extStreaming = false;
++          m_extPadding = false;
++          if (m_stats)
++            m_stats->SetSinkStarved(false);
+           ReturnBuffers();
+           OpenSink();
+ 
+@@ -303,6 +306,7 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+ 
+         case CSinkControlProtocol::FLUSH:
+           ReturnBuffers();
++          m_extPadding = false;
+           // Pause also clears AE queues: only explicit stream flush discards device audio.
+           if (m_sink && *reinterpret_cast<const bool*>(msg->data))
+             m_sink->Flush();
+@@ -325,6 +329,8 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+             if (m_state == S_TOP_CONFIGURED_IDLE || m_state == S_TOP_CONFIGURED_PLAY ||
+                 m_state == S_TOP_CONFIGURED_SILENCE)
+             {
++              m_extPadding = false;
++              m_stats->SetSinkStarved(false);
+               m_state = S_TOP_CONFIGURED_SUSPEND;
+               m_extTimeout = 0ms;
+             }
+@@ -439,6 +445,8 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+         {
+         case CSinkDataProtocol::DRAIN:
+           m_sink->Drain();
++          m_extPadding = false;
++          m_stats->SetSinkStarved(false);
+           msg->Reply(CSinkDataProtocol::ACC);
+           m_state = S_TOP_CONFIGURED_IDLE;
+           m_extTimeout = 10s;
+@@ -447,6 +455,7 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+           CSampleBuffer *samples;
+           unsigned int delay;
+           samples = *((CSampleBuffer**)msg->data);
++          m_extPadding = false;
+           delay = OutputSamples(samples);
+           msg->Reply(CSinkDataProtocol::RETURNSAMPLE, &samples, sizeof(CSampleBuffer*));
+           if (m_extError)
+@@ -570,6 +579,8 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+           else
+           {
+             m_sink->Drain();
++            m_extPadding = false;
++            m_stats->SetSinkStarved(false);
+             m_state = S_TOP_CONFIGURED_IDLE;
+             if (m_extAppFocused)
+               m_extTimeout = 10s;
+@@ -589,6 +600,12 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+         switch (signal)
+         {
+         case CSinkControlProtocol::TIMEOUT:
++          // Flagged once per run of silence
++          if (!m_extPadding)
++          {
++            m_extPadding = true;
++            m_stats->SetSinkStarved(true);
++          }
+           OutputSamples(&m_sampleOfSilence);
+           if (m_extError)
+           {
+diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.h b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.h
+index aaec9836c0..4c5613dcce 100644
+--- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.h
++++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.h
+@@ -138,6 +138,7 @@ protected:
+   std::chrono::milliseconds m_extSilenceTimeout;
+   bool m_extAppFocused;
+   bool m_extStreaming;
++  bool m_extPadding{false};
+   bool m_extReserved{false};
+   std::chrono::duration<double> m_reservedCacheTotal{};
+   std::chrono::duration<double> m_reservedLatency{};
+diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAEStream.h b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAEStream.h
+index e0771bc2bc..7714eb6db4 100644
+--- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAEStream.h
++++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAEStream.h
+@@ -252,6 +252,7 @@ protected:
+   enum AVMatrixEncoding m_matrixEncoding;
+   enum AVAudioServiceType m_audioServiceType;
+   bool m_forceResampler;
++  bool m_realtime{false};
+   IAEClockCallback *m_pClock;
+   CSyncError m_syncError;
+   double m_lastSyncError;
+diff --git a/xbmc/cores/AudioEngine/Utils/AEStreamData.h b/xbmc/cores/AudioEngine/Utils/AEStreamData.h
+index a0624f46bf..b4e42005df 100644
+--- a/xbmc/cores/AudioEngine/Utils/AEStreamData.h
++++ b/xbmc/cores/AudioEngine/Utils/AEStreamData.h
+@@ -16,4 +16,5 @@ enum AEStreamOptions
+   AESTREAM_FORCE_RESAMPLE = 1 << 0,   /* force resample even if rates match */
+   AESTREAM_PAUSED         = 1 << 1,   /* create the stream paused */
+   AESTREAM_AUTOSTART      = 1 << 2,   /* autostart the stream when enough data is buffered */
++  AESTREAM_REALTIME       = 1 << 3,   /* sound is made as it plays (games), so it can't get ahead */
+ };
+diff --git a/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp b/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp
+index db53f6e51f..e1fa43e3af 100644
+--- a/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp
++++ b/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp
+@@ -109,7 +109,8 @@ bool CRetroPlayerAudio::OpenStream(const StreamProperties& properties)
+   audioFormat.m_sampleRate = iSampleRate;
+   audioFormat.m_channelLayout = channelLayout;
+   // Resampling follows the game's speed and corrects drift
+-  m_pAudioStream = audioEngine->MakeStream(audioFormat, AESTREAM_FORCE_RESAMPLE);
++  m_pAudioStream =
++      audioEngine->MakeStream(audioFormat, AESTREAM_FORCE_RESAMPLE | AESTREAM_REALTIME);
+   m_resampleRatio = 1.0;
+   m_settledSecs = 0.0;
+   m_maxDelay = 0.0;
+-- 
+2.55.0
+
