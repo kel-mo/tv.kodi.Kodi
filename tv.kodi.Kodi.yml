@@ -822,6 +822,8 @@ modules:
         path: patches/kodi-videoplayer-stop-open-deadlock.patch
       - type: patch
         path: patches/kodi-retroplayer-audio-realtime.patch
+      - type: patch
+        path: patches/kodi-imagedecoder-decode-scale.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
