@@ -1,0 +1,99 @@
+From 71c243a9ee3eb10ccb927741fed4324d014f554e Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Sat, 14 Nov 2026 09:57:44 +1000
+Subject: [PATCH] Treat Kodi's size as an upper bound, not the size to render
+ at
+
+LoadImageFromMemory() reported whatever size Kodi passed as the
+picture's own whenever it was 4096 or less, taking it as a control's
+request. Since Kodi 22.0 RC2 (xbmc/xbmc#30123) the texture cache passes
+the largest size it keeps, 1920x1080 by default, so every SVG thumbnail
+came out at 1920x1080, stretched to 16:9 whatever its shape. Where the
+max texture size is 4096 or less, every load that passes it as the bound
+got a square of that size.
+
+Decode at the size the SVG declares, as the README describes, and only
+shrink it, keeping its aspect, when it is bigger than Kodi's bound.
+
+Fixes #6.
+
+Assisted-by: Claude
+---
+ src/SvgPicture.cpp | 58 ++++++++++++++++++++++++++--------------------
+ 1 file changed, 33 insertions(+), 25 deletions(-)
+
+diff --git a/src/SvgPicture.cpp b/src/SvgPicture.cpp
+index 289d25e..b2f7bcc 100644
+--- a/src/SvgPicture.cpp
++++ b/src/SvgPicture.cpp
+@@ -55,37 +55,45 @@ bool SvgPicture::LoadImageFromMemory(const std::string& mimetype,
+     return false;
+   }
+ 
+-  if (width == 0 || height == 0 || width > kMaxPlausibleHint || height > kMaxPlausibleHint)
++  double docWidth = m_document->width();
++  double docHeight = m_document->height();
++  if (docWidth <= 0 || docHeight <= 0)
+   {
+-    double docWidth = m_document->width();
+-    double docHeight = m_document->height();
+-    if (docWidth <= 0 || docHeight <= 0)
+-    {
+-      docWidth = kNativeSize;
+-      docHeight = kNativeSize;
+-    }
++    docWidth = kNativeSize;
++    docHeight = kNativeSize;
++  }
++
++  // The size the SVG declares is the size it gets decoded at. Neither the
++  // skin control's size nor the output resolution ever reaches an image
++  // decoder, so the file itself is the only place the intended resolution
++  // can be expressed - an asset meant to be drawn at 200px on a 4K screen
++  // says so, and gets rasterized at exactly that. kNativeSize is only the
++  // fallback for a file that declares no usable size at all.
++  //
++  // Only an upper bound is enforced, to keep a malformed or hostile file
++  // from asking for an allocation that is never a plausible UI texture.
++  const double longSide = std::max(docWidth, docHeight);
++  if (longSide > kMaxPlausibleHint)
++  {
++    const double shrink = kMaxPlausibleHint / longSide;
++    docWidth *= shrink;
++    docHeight *= shrink;
++  }
+ 
+-    // The size the SVG declares is the size it gets decoded at. Neither the
+-    // skin control's size nor the output resolution ever reaches an image
+-    // decoder, so the file itself is the only place the intended resolution
+-    // can be expressed - an asset meant to be drawn at 200px on a 4K screen
+-    // says so, and gets rasterized at exactly that. kNativeSize is only the
+-    // fallback for a file that declares no usable size at all.
+-    //
+-    // Only an upper bound is enforced, to keep a malformed or hostile file
+-    // from asking for an allocation that is never a plausible UI texture.
+-    const double longSide = std::max(docWidth, docHeight);
+-    if (longSide > kMaxPlausibleHint)
++  // Kodi's width/height is an upper bound, not a size to render at
++  if (width > 0 && height > 0)
++  {
++    const double fit = std::min(width / docWidth, height / docHeight);
++    if (fit < 1.0)
+     {
+-      const double shrink = kMaxPlausibleHint / longSide;
+-      docWidth *= shrink;
+-      docHeight *= shrink;
++      docWidth *= fit;
++      docHeight *= fit;
+     }
+-
+-    width = static_cast<unsigned int>(docWidth + 0.5);
+-    height = static_cast<unsigned int>(docHeight + 0.5);
+   }
+ 
++  width = static_cast<unsigned int>(docWidth + 0.5);
++  height = static_cast<unsigned int>(docHeight + 0.5);
++
+   if (width == 0 || height == 0)
+   {
+     kodi::Log(ADDON_LOG_ERROR, "%s: SVG has no usable intrinsic size and none was requested",

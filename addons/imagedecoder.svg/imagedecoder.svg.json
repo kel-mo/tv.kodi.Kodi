@@ -8,6 +8,10 @@
             "commit": "47e9f3c84228b391c6d2bdb0913ee46183bfb0ab"
         },
         {
+            "type": "patch",
+            "path": "imagedecoder.svg-001-bound-is-a-ceiling.patch"
+        },
+        {
             "type": "file",
             "path": "../../tools/gen-addon-metainfo.sh"
         }
