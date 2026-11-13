@@ -1,4 +1,4 @@
-From 59911b75f87e54a434407060eb81822d52aab83d Mon Sep 17 00:00:00 2001
+From 6cfc24cff55898058aca6bd557fc7341447d1c09 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sat, 17 Oct 2026 05:00:27 +1000
 Subject: [PATCH] [VideoPlayer] Back off from a demuxer that keeps returning
@@ -14,23 +14,25 @@ lasts.
 Once a run of empty packets has lasted more than 1 ms, sleep for an
 eighth of how long it has lasted, between 1 and 10 ms. A read that
 finishes within 1 ms costs nothing, and a slower one is picked up at
-most about an eighth of its length late, so there is no fixed cap on
-packets per second. Sleeping for the whole run instead would leave a
-sample that takes 10 to 20 ms to decrypt in software, as on a Raspberry
-Pi 4, waiting up to its own length again, and the player falls behind.
-Any other packet ends the run, and so does idling on full queues. An
-empty packet that took longer than 1 ms to read ends the run as well:
-the demuxer blocked on input, so it has already paced the loop. A seek
-or flush needs no reset of its own, because its first packet ends the
-run. Empty packets that replace input the demuxer read and dropped are
-marked by the demuxer and end the run too, so channel starts are not
-throttled.
+most 1 ms or about an eighth of its length late, whichever is more, so
+there is no fixed cap on packets per second. Sleeping for the whole run
+instead would leave a sample that takes 10 to 20 ms to decrypt in
+software, as on a Raspberry Pi 4, waiting up to its own length again,
+and the player falls behind. Any other packet ends the run, and so does
+idling on full queues. An empty packet that took longer than 1 ms to
+read ends the run as well: the demuxer blocked on input, so it has
+already paced the loop. A seek or flush needs no reset of its own,
+because its first packet ends the run. Empty packets that replace input
+the demuxer read and dropped are marked by the demuxer and end the run
+too, so channel starts are not throttled.
+
+(cherry picked from commit 5e14903cf3125e7bc28b1dea5fda98cd964c1a51)
 ---
  xbmc/cores/VideoPlayer/VideoPlayer.cpp | 34 ++++++++++++++++++++++++++
  1 file changed, 34 insertions(+)
 
 diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-index d97b228462..6ad4ae1055 100644
+index 97507dd13c..9b20083005 100644
 --- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 @@ -91,6 +91,13 @@ using namespace std::chrono_literals;
@@ -41,7 +43,7 @@ index d97b228462..6ad4ae1055 100644
 +constexpr auto EMPTY_PACKET_GRACE = 1ms;
 +// same as the idle sleep on full queues
 +constexpr auto EMPTY_PACKET_MAX_SLEEP = 10ms;
-+// sleep at most 1/N of the run so far, so a slow read is picked up at most 1/N late
++// sleep 1/N of the run so far, at least 1 ms, so a long read is picked up about 1/N late
 +constexpr int EMPTY_PACKET_SLEEP_DIVISOR = 8;
 +
  bool IsKnownLanguage(const CLanguageTag& language)

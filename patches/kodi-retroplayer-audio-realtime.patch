@@ -1,55 +1,31 @@
-From ed71d906411f871815a89e9f1741eb73fe3e4b39 Mon Sep 17 00:00:00 2001
+From ee0cbd7a3703089305b112285b3af6a69ed4c8ff Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Tue, 10 Nov 2026 15:47:12 +1000
 Subject: [PATCH] [AudioEngine] ActiveAE: Put a period of silence ahead of a
  game's sound
 
 A game makes its sound as it plays, so it can never get ahead of the
-sink. When a game starts, the sink plays its own silence until the
-game's first sound arrives. That sound waits behind whichever silence
-write is under way, so the lead it starts with is random, and real-time
-supply never adds to it. On PipeWire, with a 50 ms period, Skate 3 on
-the RPCS3 core settled at 111 to 185 ms of delay, and 5 of 9 starts ran
-dry, from once to 657 times in 150 s. A flush drops what the engine had
-queued, so the stream starts again with no lead, and a stream fed just
-in time rarely gives the sink the chance to time out and play its own
-silence, so the sink waits on each buffer instead.
+sink. After a start or a flush its first sound lands behind whatever
+the sink is playing, so the lead it gets is random and nothing adds to
+it later. On PipeWire, Skate 3 on the RPCS3 core ran dry in 5 of 9
+starts.
 
-A new stream option, AESTREAM_REALTIME, marks a stream like this, and
-RetroPlayer sets it. It isn't offered to add-ons. The sink raises a
-flag when it starts a run of its own silence, and a single-stream flush
-of a real-time stream raises it too. While the flag is up, the engine
-sends one buffer of silence, one sink period (at most 100 ms), ahead of
-the real-time stream's next buffer. It is counted like the stream's own
-sound, so the delay the stream reports includes it.
-
-The silence is skipped, and not tried again, when the engine's silence
-buffers are all in use or another stream is mixed first in that pass.
-On ALSA and PulseAudio the device already holds the sink's silence, so
-the period adds to that, and after a start or a flush it stays. After a
-pause, RetroPlayer already skips the game's sound back to the delay it
-had before, which takes the period back out.
-
-Tested on Linux with PipeWire, 150 s per run. Skate 3 on RPCS3: none
-of 15 starts ran dry, and the delay settled at 159 to 212 ms. The lead
-after a start still varies by about a period: in the 4 lowest (159 to
-168 ms) PipeWire had to wait on the engine at times, though it never
-ran dry. Pause and fast-forward still caused one underrun each while
-the game's sound was stopped; once the sound came back, at least one
-period stayed queued. The Simpsons: Hit & Run on LRPS2, which is
-flushed twice at boot, settled at 198 and 201 ms with no underruns;
-without the flag on flush it ran dry 3 and 6 times at boot.
+Mark such streams with a new option, AESTREAM_REALTIME, which
+RetroPlayer sets. When the sink has had to play its own silence, or a
+real-time stream is flushed, the engine sends one sink period of
+silence ahead of the stream's next buffer, so the game starts with a
+lead.
 
 Assisted-by: Claude
 ---
  .../AudioEngine/Engines/ActiveAE/ActiveAE.cpp | 24 +++++++++++++++++++
  .../AudioEngine/Engines/ActiveAE/ActiveAE.h   |  5 ++++
- .../Engines/ActiveAE/ActiveAESink.cpp         | 17 +++++++++++++
+ .../Engines/ActiveAE/ActiveAESink.cpp         | 16 +++++++++++++
  .../Engines/ActiveAE/ActiveAESink.h           |  1 +
  .../Engines/ActiveAE/ActiveAEStream.h         |  1 +
- xbmc/cores/AudioEngine/Utils/AEStreamData.h   |  1 +
+ xbmc/cores/AudioEngine/Utils/AEStreamData.h   |  7 +++---
  .../RetroPlayer/streams/RetroPlayerAudio.cpp  |  3 ++-
- 7 files changed, 51 insertions(+), 1 deletion(-)
+ 7 files changed, 53 insertions(+), 4 deletions(-)
 
 diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp
 index 52d03d244c..c62914f2f2 100644
@@ -145,7 +121,7 @@ index 38b3b54524..5f8f37303c 100644
    struct StreamStats
    {
 diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
-index 2b713dcf80..d83311c36c 100644
+index 2b713dcf80..98997927a5 100644
 --- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
 +++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
 @@ -263,6 +263,9 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
@@ -201,11 +177,10 @@ index 2b713dcf80..d83311c36c 100644
              m_state = S_TOP_CONFIGURED_IDLE;
              if (m_extAppFocused)
                m_extTimeout = 10s;
-@@ -589,6 +600,12 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
+@@ -589,6 +600,11 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
          switch (signal)
          {
          case CSinkControlProtocol::TIMEOUT:
-+          // Flagged once per run of silence
 +          if (!m_extPadding)
 +          {
 +            m_extPadding = true;
@@ -239,14 +214,20 @@ index e0771bc2bc..7714eb6db4 100644
    CSyncError m_syncError;
    double m_lastSyncError;
 diff --git a/xbmc/cores/AudioEngine/Utils/AEStreamData.h b/xbmc/cores/AudioEngine/Utils/AEStreamData.h
-index a0624f46bf..b4e42005df 100644
+index a0624f46bf..27ce7a0eb8 100644
 --- a/xbmc/cores/AudioEngine/Utils/AEStreamData.h
 +++ b/xbmc/cores/AudioEngine/Utils/AEStreamData.h
-@@ -16,4 +16,5 @@ enum AEStreamOptions
-   AESTREAM_FORCE_RESAMPLE = 1 << 0,   /* force resample even if rates match */
-   AESTREAM_PAUSED         = 1 << 1,   /* create the stream paused */
-   AESTREAM_AUTOSTART      = 1 << 2,   /* autostart the stream when enough data is buffered */
-+  AESTREAM_REALTIME       = 1 << 3,   /* sound is made as it plays (games), so it can't get ahead */
+@@ -13,7 +13,8 @@
+  */
+ enum AEStreamOptions
+ {
+-  AESTREAM_FORCE_RESAMPLE = 1 << 0,   /* force resample even if rates match */
+-  AESTREAM_PAUSED         = 1 << 1,   /* create the stream paused */
+-  AESTREAM_AUTOSTART      = 1 << 2,   /* autostart the stream when enough data is buffered */
++  AESTREAM_FORCE_RESAMPLE = 1 << 0, /* force resample even if rates match */
++  AESTREAM_PAUSED = 1 << 1, /* create the stream paused */
++  AESTREAM_AUTOSTART = 1 << 2, /* autostart the stream when enough data is buffered */
++  AESTREAM_REALTIME = 1 << 3, /* sound is made as it plays (games), so it can't get ahead */
  };
 diff --git a/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp b/xbmc/cores/RetroPlayer/streams/RetroPlayerAudio.cpp
 index db53f6e51f..e1fa43e3af 100644
@@ -262,6 +243,3 @@ index db53f6e51f..e1fa43e3af 100644
    m_resampleRatio = 1.0;
    m_settledSecs = 0.0;
    m_maxDelay = 0.0;
--- 
-2.55.0
-

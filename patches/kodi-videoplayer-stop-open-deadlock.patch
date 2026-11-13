@@ -367,8 +367,8 @@ index 60c49162ed..23d3c2e7a6 100644
 -  void SetVideoResolution(RESOLUTION res, bool forceUpdate);
 +  /*!
 +   * \brief Switch the video resolution on the app thread
-+   * \param abortEvent off the app thread, stop waiting once set, and drop the switch if the app
-+   *        thread hasn't started it yet
++   * \param abortEvent off the app thread, once set drop the switch and stop waiting, unless the
++   *        app thread has already started it, in which case wait for it to finish
 +   */
 +  void SetVideoResolution(RESOLUTION res, bool forceUpdate, CEvent* abortEvent = nullptr);
    void ApplyModeChange(RESOLUTION res);

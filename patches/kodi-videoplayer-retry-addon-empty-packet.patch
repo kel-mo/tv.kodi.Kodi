@@ -1,4 +1,4 @@
-From 897ff3e47985bec82a936bbc2137ea5003157ad0 Mon Sep 17 00:00:00 2001
+From c6c4733941db4ee070ccfc35962382558ce6023e Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sat, 17 Oct 2026 11:21:20 +1000
 Subject: [PATCH] [VideoPlayer] Ask an add-on demuxer again before passing on
@@ -18,13 +18,15 @@ and one that is dropping input it already has gets through up to 32
 packets per poll. The cap is half the player's 1 ms grace, so a read
 that only retried never counts as one that blocked, and a comment at the
 grace notes the dependency.
+
+(cherry picked from commit 6ae7210ef23d860c9522fef7c4cdfc45d0a67b61)
 ---
  .../DVDDemuxers/DVDDemuxClient.cpp            | 20 +++++++++++++++++++
  xbmc/cores/VideoPlayer/VideoPlayer.cpp        |  1 +
  2 files changed, 21 insertions(+)
 
 diff --git a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxClient.cpp b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxClient.cpp
-index c1a3ef8c70..46af5072c9 100644
+index 039fce01df..7c2ce0a30a 100644
 --- a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxClient.cpp
 +++ b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxClient.cpp
 @@ -16,6 +16,7 @@
@@ -70,7 +72,7 @@ index c1a3ef8c70..46af5072c9 100644
    {
      return nullptr;
 diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-index 6ad4ae1055..7e8e8fe18e 100644
+index 9b20083005..dbca408db9 100644
 --- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 @@ -92,6 +92,7 @@ using namespace std::chrono_literals;

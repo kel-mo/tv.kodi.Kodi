@@ -1,4 +1,4 @@
-From 6f6ab9a0ec4d2cf4e57b673196e34b0d664644ff Mon Sep 17 00:00:00 2001
+From 9b4b6e0887a86c129a629f8c6531a9e89e89526e Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Thu, 15 Oct 2026 20:18:33 +1000
 Subject: [PATCH] Revert "VideoPlayer: stop spinning when the source cannot
@@ -16,12 +16,14 @@ one evening it stalled 20 times in 18 minutes, and in a 990 s run the
 next day it stalled twice, with the queue below 1 s in 11 of 195
 samples. With this revert the queue stayed full in all 195 samples,
 with no stalls.
+
+(cherry picked from commit 1b29882a9329d4d64c7cc92ad1e0ba04184f7a74)
 ---
  xbmc/cores/VideoPlayer/VideoPlayer.cpp | 9 ---------
  1 file changed, 9 deletions(-)
 
 diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
-index 7684d00a93..d97b228462 100644
+index 1d6705eb3c..97507dd13c 100644
 --- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 +++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
 @@ -1607,8 +1607,6 @@ void CVideoPlayer::Process()
