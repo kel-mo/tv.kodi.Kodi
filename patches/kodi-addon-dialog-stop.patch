@@ -1,0 +1,382 @@
+From 5847b27306f17c7f1e14ae7edf114c8ab01812bb Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Sat, 14 Nov 2026 14:13:16 +1000
+Subject: [PATCH 1/2] Don't deadlock when playback is stopped while an OK
+ dialog is open
+
+An input stream add-on can show an OK dialog from Open() on the
+VideoPlayer thread, e.g. inputstream.adaptive when it can't download the
+manifest. If a stop comes while that dialog is open, the app thread
+handles it inside the dialog's render loop and waits in CloseFile() for
+the VideoPlayer thread, which is waiting for the dialog, so Kodi hangs.
+
+ShowOKDialogText() and ShowOKDialogLines() now stop waiting once the
+stop event of the calling CThread is set, and later calls from that
+thread return at once. The dialog stays open until it is dismissed. The
+message owns the dialog text through a new SendMsgAbortable() overload,
+as the app thread may still read it after the sender has gone, and
+CThread::GetStopEvent() is now public for the helper.
+
+Assisted-by: Claude
+---
+ xbmc/messaging/ApplicationMessenger.cpp   | 34 ++++++++++++++++++
+ xbmc/messaging/ApplicationMessenger.h     | 14 ++++++++
+ xbmc/messaging/ThreadMessage.h            |  7 +++-
+ xbmc/messaging/helpers/DialogOKHelper.cpp | 43 ++++++++++++++---------
+ xbmc/threads/Thread.h                     |  6 ++--
+ 5 files changed, 83 insertions(+), 21 deletions(-)
+
+diff --git a/xbmc/messaging/ApplicationMessenger.cpp b/xbmc/messaging/ApplicationMessenger.cpp
+index 6e5d0a2fa9..c5d84af939 100644
+--- a/xbmc/messaging/ApplicationMessenger.cpp
++++ b/xbmc/messaging/ApplicationMessenger.cpp
+@@ -197,6 +197,40 @@ bool CApplicationMessenger::SendMsgAbortable(
+   return claimed->load();
+ }
+ 
++int CApplicationMessenger::SendMsgAbortable(
++    uint32_t messageId, int param1, int param2, std::shared_ptr<void> payload, CEvent& abortEvent)
++{
++  if (m_guiThreadId == CThread::GetCurrentThreadId())
++    return SendMsg(messageId, param1, param2, payload.get());
++
++  if (m_bStop || abortEvent.Signaled())
++    return -1;
++
++  auto waitEvent = std::make_shared<CEvent>(true);
++  auto result = std::make_shared<int>(-1);
++  auto claimed = std::make_shared<std::atomic<bool>>(false);
++  ThreadMessage* msg = new ThreadMessage{messageId, param1, param2, payload.get()};
++  msg->payloadOwner = std::move(payload);
++  msg->waitEvent = waitEvent;
++  msg->result = result;
++  msg->claimed = claimed;
++  Enqueue(msg); // msg may be deleted from here on
++
++  // ensure the thread doesn't hold the graphics lock
++  std::optional<CSingleExit> exit;
++  if (CWinSystemBase* winSystem = CServiceBroker::GetWinSystem(); winSystem)
++    exit.emplace(winSystem->GetGfxContext());
++
++  XbmcThreads::CEventGroup group{waitEvent.get(), &abortEvent};
++  if (group.wait() == &abortEvent)
++  {
++    // drop it, unless the app thread has already taken it
++    claimed->exchange(true);
++    return -1;
++  }
++  return *result;
++}
++
+ int CApplicationMessenger::SendMsg(uint32_t messageId, int param1, int param2, void* payload, std::string strParam)
+ {
+   return SendMsg(ThreadMessage{messageId, param1, param2, payload, std::move(strParam),
+diff --git a/xbmc/messaging/ApplicationMessenger.h b/xbmc/messaging/ApplicationMessenger.h
+index f6d8589ab5..e68b37750f 100644
+--- a/xbmc/messaging/ApplicationMessenger.h
++++ b/xbmc/messaging/ApplicationMessenger.h
+@@ -331,6 +331,20 @@ public:
+   bool SendMsgAbortable(
+       uint32_t messageId, int param1, int param2, void* payload, CEvent& abortEvent);
+ 
++  /*!
++   * \brief As above, for a payload the message owns
++   *
++   * The payload outlives this call, so the wait also ends while the message is being processed,
++   * which then finishes without the sender.
++   *
++   * \return the message's result, or -1 if it was dropped or the wait ended first
++   */
++  int SendMsgAbortable(uint32_t messageId,
++                       int param1,
++                       int param2,
++                       std::shared_ptr<void> payload,
++                       CEvent& abortEvent);
++
+   /*!
+    * \brief Send a non-blocking message and return immediately
+    *
+diff --git a/xbmc/messaging/ThreadMessage.h b/xbmc/messaging/ThreadMessage.h
+index e5702c2dda..fd52525664 100644
+--- a/xbmc/messaging/ThreadMessage.h
++++ b/xbmc/messaging/ThreadMessage.h
+@@ -80,7 +80,8 @@ public:
+       params(std::move(other.params)),
+       waitEvent(std::move(other.waitEvent)),
+       result(std::move(other.result)),
+-      claimed(std::move(other.claimed))
++      claimed(std::move(other.claimed)),
++      payloadOwner(std::move(other.payloadOwner))
+   {
+   }
+ 
+@@ -98,6 +99,7 @@ public:
+     waitEvent = other.waitEvent;
+     result = other.result;
+     claimed = other.claimed;
++    payloadOwner = other.payloadOwner;
+     return *this;
+   }
+ 
+@@ -115,6 +117,7 @@ public:
+     waitEvent = std::move(other.waitEvent);
+     result = std::move(other.result);
+     claimed = std::move(other.claimed);
++    payloadOwner = std::move(other.payloadOwner);
+     return *this;
+   }
+ 
+@@ -144,6 +147,8 @@ protected:
+   std::shared_ptr<int> result;
+   //! set by whichever of processing or an aborting sender gets there first
+   std::shared_ptr<std::atomic<bool>> claimed;
++  //! keeps lpVoid alive for a sender that stopped waiting
++  std::shared_ptr<void> payloadOwner;
+ };
+ }
+ }
+diff --git a/xbmc/messaging/helpers/DialogOKHelper.cpp b/xbmc/messaging/helpers/DialogOKHelper.cpp
+index 71e8a7921f..93a8b0cbf6 100644
+--- a/xbmc/messaging/helpers/DialogOKHelper.cpp
++++ b/xbmc/messaging/helpers/DialogOKHelper.cpp
+@@ -10,6 +10,9 @@
+ 
+ #include "ServiceBroker.h"
+ #include "messaging/ApplicationMessenger.h"
++#include "threads/Thread.h"
++
++#include <memory>
+ 
+ namespace KODI
+ {
+@@ -17,16 +20,25 @@ namespace MESSAGING
+ {
+ namespace HELPERS
+ {
++namespace
++{
++int SendDialogOK(std::shared_ptr<DialogOKMessage> options)
++{
++  // the thread's owner may be stopping it while waiting for it, e.g. a player being closed
++  if (CThread* thread = CThread::GetCurrentThread(); thread)
++    return CServiceBroker::GetAppMessenger()->SendMsgAbortable(
++        TMSG_GUI_DIALOG_OK, -1, -1, std::move(options), thread->GetStopEvent());
++  return CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_DIALOG_OK, -1, -1, options.get());
++}
++} // namespace
++
+ bool ShowOKDialogText(CVariant heading, CVariant text)
+ {
+-  DialogOKMessage options;
+-  options.heading = std::move(heading);
+-  options.text = std::move(text);
++  auto options = std::make_shared<DialogOKMessage>();
++  options->heading = std::move(heading);
++  options->text = std::move(text);
+ 
+-  if (CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_DIALOG_OK, -1, -1,
+-                                                 static_cast<void*>(&options)) > 0)
+-    return true;
+-  return false;
++  return SendDialogOK(std::move(options)) > 0;
+ }
+ 
+ void UpdateOKDialogText(CVariant heading, CVariant text)
+@@ -42,16 +54,13 @@ void UpdateOKDialogText(CVariant heading, CVariant text)
+ 
+ bool ShowOKDialogLines(CVariant heading, CVariant line0, CVariant line1, CVariant line2)
+ {
+-  DialogOKMessage options;
+-  options.heading = std::move(heading);
+-  options.lines[0] = std::move(line0);
+-  options.lines[1] = std::move(line1);
+-  options.lines[2] = std::move(line2);
+-
+-  if (CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_DIALOG_OK, -1, -1,
+-                                                 static_cast<void*>(&options)) > 0)
+-    return true;
+-  return false;
++  auto options = std::make_shared<DialogOKMessage>();
++  options->heading = std::move(heading);
++  options->lines[0] = std::move(line0);
++  options->lines[1] = std::move(line1);
++  options->lines[2] = std::move(line2);
++
++  return SendDialogOK(std::move(options)) > 0;
+ }
+ 
+ }
+diff --git a/xbmc/threads/Thread.h b/xbmc/threads/Thread.h
+index 68bd7a5424..588f54aba3 100644
+--- a/xbmc/threads/Thread.h
++++ b/xbmc/threads/Thread.h
+@@ -99,6 +99,9 @@ public:
+ 
+   static CThread* GetCurrentThread();
+ 
++  //! Set by StopThread(), i.e. once the owner may be blocked waiting for this thread
++  CEvent& GetStopEvent() { return m_StopEvent; }
++
+   virtual void OnException(){} // signal termination handler
+ 
+ protected:
+@@ -108,9 +111,6 @@ protected:
+ 
+   std::atomic<bool> m_bStop;
+ 
+-  //! Set by StopThread(), i.e. once the owner may be blocked waiting for this thread
+-  CEvent& GetStopEvent() { return m_StopEvent; }
+-
+   enum WaitResponse { WAIT_INTERRUPTED = -1, WAIT_SIGNALED = 0, WAIT_TIMEDOUT = 1 };
+ 
+   /**
+-- 
+2.55.0
+
+
+From d9b4c7c1dd378820a9d2bfea2620d5265b0e92b1 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Sat, 14 Nov 2026 14:13:16 +1000
+Subject: [PATCH 2/2] Close a modal dialog when the thread waiting for it is
+ stopped
+
+CGUIDialog::Open() from another thread waits for the dialog to close,
+so Kodi hangs the same way when playback is stopped while an add-on's
+Select or other modal dialog is open on the VideoPlayer thread, e.g.
+inputstream.adaptive's quality chooser.
+
+Open() now stops waiting when the stop event of the calling CThread is
+set, like the OK dialog. Nothing reads the answer after that, so the
+dialog closes on its next frame. That also covers dialogs the caller
+deletes once Open() returns, like the file browser.
+
+Assisted-by: Claude
+---
+ xbmc/guilib/GUIDialog.cpp               | 20 ++++++++++++++++++--
+ xbmc/guilib/GUIDialog.h                 |  4 ++++
+ xbmc/messaging/ApplicationMessenger.cpp | 13 +++++++++----
+ xbmc/messaging/ApplicationMessenger.h   |  3 ++-
+ 4 files changed, 33 insertions(+), 7 deletions(-)
+
+diff --git a/xbmc/guilib/GUIDialog.cpp b/xbmc/guilib/GUIDialog.cpp
+index ddfb70ebc5..20f95f13b5 100644
+--- a/xbmc/guilib/GUIDialog.cpp
++++ b/xbmc/guilib/GUIDialog.cpp
+@@ -16,6 +16,7 @@
+ #include "input/actions/Action.h"
+ #include "messaging/ApplicationMessenger.h"
+ #include "threads/SingleLock.h"
++#include "threads/Thread.h"
+ #include "utils/TimeUtils.h"
+ #include "windowing/WinSystem.h"
+ 
+@@ -162,6 +163,7 @@ void CGUIDialog::Open_Internal(bool bProcessRenderLoop, const std::string &param
+   // thread (this should really be handled via a thread message though IMO)
+   m_active = true;
+   m_closing = false;
++  m_abandoned = false;
+   CServiceBroker::GetGUI()->GetWindowManager().RegisterDialog(this);
+ 
+   // active this window
+@@ -177,6 +179,8 @@ void CGUIDialog::Open_Internal(bool bProcessRenderLoop, const std::string &param
+ 
+     while (m_active)
+     {
++      if (m_abandoned)
++        Close(true);
+       if (!CServiceBroker::GetGUI()->GetWindowManager().ProcessRenderLoop(false))
+         break;
+     }
+@@ -195,8 +199,20 @@ void CGUIDialog::Open(bool bProcessRenderLoop, const std::string& param /* = ""
+   {
+     // make sure graphics lock is not held
+     CSingleExit leaveIt(CServiceBroker::GetWinSystem()->GetGfxContext());
+-    CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_DIALOG_OPEN, -1, bProcessRenderLoop,
+-                                               static_cast<void*>(this), param);
++    // the thread's owner may be stopping it while waiting for it, e.g. a player being closed
++    if (CThread* thread = CThread::GetCurrentThread(); thread)
++    {
++      // not owned: deleted windows are freed on the app thread, after this message
++      std::shared_ptr<void> dialog(this, [](void*) {});
++      CServiceBroker::GetAppMessenger()->SendMsgAbortable(TMSG_GUI_DIALOG_OPEN, -1,
++                                                          bProcessRenderLoop, std::move(dialog),
++                                                          thread->GetStopEvent(), param);
++      if (thread->GetStopEvent().Signaled())
++        m_abandoned = true;
++    }
++    else
++      CServiceBroker::GetAppMessenger()->SendMsg(TMSG_GUI_DIALOG_OPEN, -1, bProcessRenderLoop,
++                                                 static_cast<void*>(this), param);
+   }
+   else
+     Open_Internal(bProcessRenderLoop, param);
+diff --git a/xbmc/guilib/GUIDialog.h b/xbmc/guilib/GUIDialog.h
+index 7300c1fa1b..facdbd5c83 100644
+--- a/xbmc/guilib/GUIDialog.h
++++ b/xbmc/guilib/GUIDialog.h
+@@ -16,6 +16,8 @@
+ #include "GUIWindow.h"
+ #include "WindowIDs.h"
+ 
++#include <atomic>
++
+ #ifdef TARGET_WINDOWS_STORE
+ #pragma pack(push, 8)
+ #endif
+@@ -80,4 +82,6 @@ protected:
+   unsigned int m_showDuration;
+   bool m_bAutoClosed;
+   DialogModalityType m_modalityType;
++  //! the thread that opened it stopped waiting, so nothing reads the result
++  std::atomic<bool> m_abandoned{false};
+ };
+diff --git a/xbmc/messaging/ApplicationMessenger.cpp b/xbmc/messaging/ApplicationMessenger.cpp
+index c5d84af939..8cb415325b 100644
+--- a/xbmc/messaging/ApplicationMessenger.cpp
++++ b/xbmc/messaging/ApplicationMessenger.cpp
+@@ -197,11 +197,15 @@ bool CApplicationMessenger::SendMsgAbortable(
+   return claimed->load();
+ }
+ 
+-int CApplicationMessenger::SendMsgAbortable(
+-    uint32_t messageId, int param1, int param2, std::shared_ptr<void> payload, CEvent& abortEvent)
++int CApplicationMessenger::SendMsgAbortable(uint32_t messageId,
++                                            int param1,
++                                            int param2,
++                                            std::shared_ptr<void> payload,
++                                            CEvent& abortEvent,
++                                            std::string strParam)
+ {
+   if (m_guiThreadId == CThread::GetCurrentThreadId())
+-    return SendMsg(messageId, param1, param2, payload.get());
++    return SendMsg(messageId, param1, param2, payload.get(), std::move(strParam));
+ 
+   if (m_bStop || abortEvent.Signaled())
+     return -1;
+@@ -209,7 +213,8 @@ int CApplicationMessenger::SendMsgAbortable(
+   auto waitEvent = std::make_shared<CEvent>(true);
+   auto result = std::make_shared<int>(-1);
+   auto claimed = std::make_shared<std::atomic<bool>>(false);
+-  ThreadMessage* msg = new ThreadMessage{messageId, param1, param2, payload.get()};
++  ThreadMessage* msg =
++      new ThreadMessage{messageId, param1, param2, payload.get(), std::move(strParam), {}};
+   msg->payloadOwner = std::move(payload);
+   msg->waitEvent = waitEvent;
+   msg->result = result;
+diff --git a/xbmc/messaging/ApplicationMessenger.h b/xbmc/messaging/ApplicationMessenger.h
+index e68b37750f..017c78445a 100644
+--- a/xbmc/messaging/ApplicationMessenger.h
++++ b/xbmc/messaging/ApplicationMessenger.h
+@@ -343,7 +343,8 @@ public:
+                        int param1,
+                        int param2,
+                        std::shared_ptr<void> payload,
+-                       CEvent& abortEvent);
++                       CEvent& abortEvent,
++                       std::string strParam = "");
+ 
+   /*!
+    * \brief Send a non-blocking message and return immediately
+-- 
+2.55.0
+
