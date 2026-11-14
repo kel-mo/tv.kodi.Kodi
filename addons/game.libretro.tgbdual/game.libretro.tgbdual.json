@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.tgbdual",
-            "commit": "05f9189f4fa79eeef97cd8e91fbf3fe873ea9064"
+            "commit": "eea95ae869dc9ae5d7446f659f32d179307d8c6c"
         },
         {
             "type": "file",

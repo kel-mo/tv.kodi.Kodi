@@ -5,7 +5,7 @@
         {
             "type": "git",
             "url": "https://github.com/xbmc/audiodecoder.usf",
-            "commit": "0df2a0a09fd8f68e3275c20e6fec3d5cab14f621"
+            "commit": "69f223c6192affc90497b4f091643986dadcd4eb"
         },
         {
             "type": "file",

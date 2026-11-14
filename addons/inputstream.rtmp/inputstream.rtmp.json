@@ -5,7 +5,7 @@
         {
             "type": "git",
             "url": "https://github.com/xbmc/inputstream.rtmp",
-            "commit": "de59f7862fe677b91a6453f522a5292e9836d0f6"
+            "commit": "4edf78efc087c0dcf5641c5e1607c6ecf439e0a5"
         },
         {
             "type": "file",

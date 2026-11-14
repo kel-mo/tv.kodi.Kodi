@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.melonds",
-            "commit": "d16deaa868c6ddb1c8e1929c4e414b8d6e52120c"
+            "commit": "3e5e406b8e5eac017cc74bbd979cfdedec5dc794"
         },
         {
             "type": "file",
@@ -48,7 +48,7 @@
                 },
                 {
                     "type": "file",
-                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.melonds/d16deaa868c6ddb1c8e1929c4e414b8d6e52120c/depends/common/melonds/0001-Load-the-game-from-its-path-when-the-frontend-gives.patch",
+                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.melonds/3e5e406b8e5eac017cc74bbd979cfdedec5dc794/depends/common/melonds/0001-Load-the-game-from-its-path-when-the-frontend-gives.patch",
                     "sha256": "418138dbf2972f34f24086d360b4226472ed7bf705a5144fdc924c7f25d957a7",
                     "dest-filename": "0001-Load-the-game-from-its-path-when-the-frontend-gives.patch"
                 },
