@@ -830,6 +830,8 @@ modules:
         path: patches/kodi-script-abort-after-onquit.patch
       - type: patch
         path: patches/kodi-retroplayer-osd-post.patch
+      - type: patch
+        path: patches/kodi-vaapi-keep-decoder.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
