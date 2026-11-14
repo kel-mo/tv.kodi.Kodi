@@ -1,0 +1,58 @@
+{
+    "name": "game.libretro.beetle-psx-hw",
+    "buildsystem": "cmake-ninja",
+    "build-options": {
+        "no-debuginfo": true,
+        "cflags": "-g0",
+        "cxxflags": "-g0"
+    },
+    "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DPACKAGE_ZIP=ON",
+        "-DCMAKE_INSTALL_PREFIX=/app/lib/kodi/addons",
+        "-DCMAKE_PREFIX_PATH=/app"
+    ],
+    "sources": [
+        {
+            "type": "git",
+            "url": "https://github.com/kodi-game/game.libretro.beetle-psx-hw",
+            "commit": "7f135ce881b61d1e7fd1bb4d1fad88311dac8f7b"
+        },
+        {
+            "type": "file",
+            "path": "../../tools/gen-addon-metainfo.sh"
+        }
+    ],
+    "modules": [
+        {
+            "name": "libretro-beetle-psx-hw",
+            "buildsystem": "simple",
+            "build-options": {
+                "no-debuginfo": true,
+                "cflags": "-g0",
+                "cxxflags": "-g0"
+            },
+            "build-commands": [
+                "make -j$FLATPAK_BUILDER_N_JOBS PREFIX=/app HAVE_OPENGL=1 GLES3=1 GL_LIB=-lGLESv2 HAVE_CDROM=1 LINK_STATIC_LIBCPLUSPLUS=0",
+                "install -s -D -m 755 mednafen_psx_hw_libretro.so /app/lib/libretro/mednafen_psx_hw_libretro.so"
+            ],
+            "cleanup": [
+                "/lib/libretro"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/kodi-game/beetle-psx-libretro/archive/7efcb4d7298dab5731089724af2e5704634b80fe.tar.gz",
+                    "sha256": "30139696e6be63f09bbf3db817b93be7750a13b14f910f6dd3e27986c9986ea9"
+                },
+                {
+                    "type": "patch",
+                    "path": "libretro-beetle-psx-hw-001-auto-renderer-on-gles.patch"
+                }
+            ]
+        }
+    ],
+    "post-install": [
+        "bash $FLATPAK_BUILDER_BUILDDIR/gen-addon-metainfo.sh game.libretro.beetle-psx-hw"
+    ]
+}

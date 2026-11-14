@@ -36,6 +36,7 @@ game.libretro.beetle-ngp
 game.libretro.beetle-pce
 game.libretro.beetle-pcfx
 game.libretro.beetle-psx
+game.libretro.beetle-psx-hw
 game.libretro.beetle-saturn
 game.libretro.beetle-supergrafx
 game.libretro.beetle-vb
