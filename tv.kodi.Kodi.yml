@@ -483,7 +483,7 @@ modules:
     sources:
       - type: archive
         url: https://files.pythonhosted.org/packages/a9/75/b8a9ba9a15b1b190d1fb21e75e921934c9bcd7e63e137f96b56ed274328c/pycryptodome-3.24.1.tar.gz
-        sha512: 19421bd637d484b475037c47236c9cc140da0428601b7abad81e00b79ca2c4c52674638ecda64be4d4f024d835935150e28623131083c603363bf0cdcdc642cb
+        sha256: 3f9e74444c0ecbec7af232a95d282c74b114d53212ce075ed17b7fd7dca32bb3
         x-checker-data:
           type: pypi
           name: pycryptodome
