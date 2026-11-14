@@ -826,6 +826,8 @@ modules:
         path: patches/kodi-imagedecoder-decode-scale.patch
       - type: patch
         path: patches/kodi-addon-dialog-stop.patch
+      - type: patch
+        path: patches/kodi-script-abort-after-onquit.patch
       - type: file
         path: addon-list.txt
         dest: build/download/

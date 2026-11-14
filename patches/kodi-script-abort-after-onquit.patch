@@ -1,0 +1,130 @@
+From 35a82003f532c25115c4a83f827944b072bd639c Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Sat, 14 Nov 2026 19:42:46 +1000
+Subject: [PATCH 1/2] [python] Abort scripts after System.OnQuit has been
+ queued for them
+
+Scripts are aborted right after "Stopping all", but System.OnQuit only
+reaches them later through the announcement thread, so a service that
+ends when its abort comes never sees it. Abort them from XBPython once
+OnQuit is queued, and have waitForAbort() run the callbacks queued
+before the abort before it returns. The call in Stop() moves back to
+just before the service add-ons are stopped, as a fallback.
+
+Assisted-by: Claude
+---
+ xbmc/application/Application.cpp    | 4 ++--
+ xbmc/interfaces/legacy/Monitor.cpp  | 7 +++++--
+ xbmc/interfaces/python/XBPython.cpp | 4 ++++
+ 3 files changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/xbmc/application/Application.cpp b/xbmc/application/Application.cpp
+index bfdeab9b3d..1a77aa679e 100644
+--- a/xbmc/application/Application.cpp
++++ b/xbmc/application/Application.cpp
+@@ -1761,8 +1761,6 @@ bool CApplication::Stop(int exitCode)
+     m_ExitCode = exitCode;
+     CLog::Log(LOGINFO, "Stopping all");
+ 
+-    CScriptInvocationManager::GetInstance().NotifyAllScriptsAborting();
+-
+     // Stop scanning before the job manager is cancelled below
+     // otherwise scans underway are not stopped
+     CMusicLibraryQueue::GetInstance().CancelAllJobs();
+@@ -1793,6 +1791,8 @@ bool CApplication::Stop(int exitCode)
+     smb.Deinit();
+ #endif
+ 
++    CScriptInvocationManager::GetInstance().NotifyAllScriptsAborting();
++
+     // Stop services before unloading Python
+     CServiceBroker::GetServiceAddons().Stop();
+ 
+diff --git a/xbmc/interfaces/legacy/Monitor.cpp b/xbmc/interfaces/legacy/Monitor.cpp
+index 34d0553500..ba016b8015 100644
+--- a/xbmc/interfaces/legacy/Monitor.cpp
++++ b/xbmc/interfaces/legacy/Monitor.cpp
+@@ -47,14 +47,17 @@ namespace XBMCAddon
+ 
+       while (!endTime.IsTimePast())
+       {
++        bool aborted;
+         {
+           DelayedCallGuard dg(languageHook);
+           auto timeout = std::min(endTime.GetTimeLeft(), 100ms);
+-          if (abortEvent.Wait(timeout))
+-            return true;
++          aborted = abortEvent.Wait(timeout);
+         }
++        // run callbacks queued before the abort first
+         if (languageHook)
+           languageHook->MakePendingCalls();
++        if (aborted)
++          return true;
+       }
+       return false;
+     }
+diff --git a/xbmc/interfaces/python/XBPython.cpp b/xbmc/interfaces/python/XBPython.cpp
+index 5f0e194d1b..5e0fdfdc29 100644
+--- a/xbmc/interfaces/python/XBPython.cpp
++++ b/xbmc/interfaces/python/XBPython.cpp
+@@ -211,6 +211,10 @@ void XBPython::Announce(ANNOUNCEMENT::AnnouncementFlag flag,
+                    std::string(ANNOUNCEMENT::AnnouncementFlagToString(flag)) + "." +
+                        std::string(message),
+                    jsonData);
++
++  // abort once OnQuit is queued, so scripts get it before their abort
++  if ((flag & ANNOUNCEMENT::System) && message == "OnQuit")
++    NotifyScriptAborting(nullptr);
+ }
+ 
+ // message all registered callbacks that we started playing
+-- 
+2.55.0
+
+
+From 089629a861971f2146a623c95306b59ef8a40949 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Sat, 14 Nov 2026 19:42:46 +1000
+Subject: [PATCH 2/2] [application] Send the playback stop when quitting during
+ playback
+
+Stop() closes the player, but the GUI_MSG_PLAYBACK_STOPPED that it
+queues is never processed, so scripts and JSON-RPC clients get no
+onPlayBackStopped() or Player.OnStop. Send those two from Stop() and
+drop the message, leaving out the rest of its handler, which would
+change windows and the display mode on the way out.
+
+Assisted-by: Claude
+---
+ xbmc/application/Application.cpp | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/xbmc/application/Application.cpp b/xbmc/application/Application.cpp
+index 1a77aa679e..96542a86d7 100644
+--- a/xbmc/application/Application.cpp
++++ b/xbmc/application/Application.cpp
+@@ -1701,6 +1701,20 @@ bool CApplication::Stop(int exitCode)
+   const auto appPlayer = GetComponent<CApplicationPlayer>();
+   appPlayer->ClosePlayer();
+ 
++  // the stop message is no longer processed, so notify its listeners here
++  static constexpr std::array playbackStopped{GUI_MSG_PLAYBACK_STOPPED, 0};
++  if (CGUIComponent* gui = CServiceBroker::GetGUI();
++      gui && gui->GetWindowManager().RemoveThreadMessageByMessageIds(playbackStopped.data()) > 0)
++  {
++    CVariant data(CVariant::VariantTypeObject);
++    data["end"] = false;
++    CServiceBroker::GetAnnouncementManager()->Announce(ANNOUNCEMENT::Player, "OnStop",
++                                                       CurrentFileItemPtr(), data);
++#ifdef HAS_PYTHON
++    CServiceBroker::GetXBPython().OnPlayBackStopped();
++#endif
++  }
++
+   {
+     // close inbound port
+     CServiceBroker::UnregisterAppPort();
+-- 
+2.55.0
+
