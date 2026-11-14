@@ -832,6 +832,8 @@ modules:
         path: patches/kodi-retroplayer-osd-post.patch
       - type: patch
         path: patches/kodi-vaapi-keep-decoder.patch
+      - type: patch
+        path: patches/kodi-videoplayer-paused-eof-wait.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
