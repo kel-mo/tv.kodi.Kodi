@@ -1,14 +1,17 @@
 PROJECT ?= tv.kodi.Kodi
+CHECKER ?= flatpak run org.flathub.flatpak-external-data-checker
 GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
 BRANCH ?= $(if $(findstring beta,$(GIT_BRANCH)),beta,stable)
 BUILDER_FLAGS ?=
 DEV_ADDONS ?=
 SHELL := /bin/bash
 
-.PHONY: update-sources update-addons addon-list build build-dev lint flatpak install uninstall run debug clean
+.PHONY: update-sources update-addons addon-list lint-checkers build build-dev lint flatpak install uninstall run debug clean
 
 update-sources:
 	flatpak run --filesystem="$$PWD" org.flathub.flatpak-external-data-checker --edit-only $(PROJECT).yml
+lint-checkers:
+	$(CHECKER) --lint $(PROJECT).yml
 update-addons:
 	cd tools && uv run addon_updater.py -r -u --zip
 	cd tools && uv run addon_extensions_updater.py

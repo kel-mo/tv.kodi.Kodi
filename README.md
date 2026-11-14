@@ -96,6 +96,9 @@ make build && make install && make run
 manifest in place; install it once with
 `flatpak install flathub org.flathub.flatpak-external-data-checker`.
 
+`make lint-checkers` checks the update metadata offline. It needs a
+`flatpak-external-data-checker` with `--lint` support.
+
 `update-addons` updates the binary addons from `repo-binary-addons`, rewires
 them as extensions and regenerates `addon-list.txt`. It needs a
 `GITHUB_TOKEN` (exported or in `.env`). `uv run` installs the Python modules
