@@ -24,6 +24,14 @@
             "commit": "74ab42c3939dc5067465bdd6d0dc784b05a36c58"
         },
         {
+            "type": "patch",
+            "path": "../../patches/game.libretro-vulkan-on-gles.patch"
+        },
+        {
+            "type": "patch",
+            "path": "../../patches/game.libretro-vulkan-early-request.patch"
+        },
+        {
             "type": "file",
             "path": "../../tools/gen-addon-metainfo.sh"
         }
