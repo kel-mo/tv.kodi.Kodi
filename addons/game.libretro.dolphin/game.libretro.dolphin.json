@@ -210,7 +210,7 @@
                 "cxxflags": "-g0"
             },
             "build-commands": [
-                "cmake -S . -B Build -G Ninja -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_BUILD_TYPE=Release -DLIBRETRO=ON -DUSE_SYSTEM_LIBS=ON -DUSE_SYSTEM_LIBMGBA=OFF -DSFML_STATIC_LIBRARIES=ON -DENABLE_VULKAN=OFF -DENABLE_X11=OFF -DENABLE_EGL=ON",
+                "cmake -S . -B Build -G Ninja -DCMAKE_INSTALL_PREFIX=/app -DCMAKE_BUILD_TYPE=Release -DLIBRETRO=ON -DUSE_SYSTEM_LIBS=ON -DUSE_SYSTEM_LIBMGBA=OFF -DSFML_STATIC_LIBRARIES=ON -DENABLE_VULKAN=ON -DENABLE_X11=OFF -DENABLE_EGL=ON",
                 "cmake --build Build -j$FLATPAK_BUILDER_N_JOBS",
                 "install -s -D -m 755 Build/dolphin_libretro.so /app/lib/libretro/dolphin_libretro.so",
                 "mkdir -p /app/lib/libretro/dolphin-emu/Sys/Resources",
@@ -267,6 +267,22 @@
                     "url": "https://github.com/mgba-emu/mgba/archive/0b40863f64d0940f333fa1c638e75f86f8a26a33.tar.gz",
                     "sha256": "9b59ed1422914f605ce912e9cafcd84d1c5b1bf9abcf0fef1b49e1d810f6f5e5",
                     "dest": "Externals/mGBA/mgba"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/archive/3bab6924988e5f19bf36586a496156cf72f70d9f.tar.gz",
+                    "sha256": "618dc35e4f571a508575fc1fc914eb15ab513e4443986509aff08dfb8844ba24",
+                    "dest": "Externals/VulkanMemoryAllocator"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/39f924b810e561fd86b2558b6711ca68d4363f68.tar.gz",
+                    "sha256": "8c5a5dae1baf6b8eabe6eb04625940eac8af4f1bf3ae3121c28dbc1583d36553",
+                    "dest": "Externals/Vulkan-Headers"
+                },
+                {
+                    "type": "patch",
+                    "path": "../../patches/libretro-dolphin-vulkan-first-switch.patch"
                 }
             ]
         }
