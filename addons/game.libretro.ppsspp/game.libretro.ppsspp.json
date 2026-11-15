@@ -135,6 +135,10 @@
                     "url": "https://github.com/Tencent/rapidjson/archive/73063f5002612c6bf64fe24f851cd5cc0d83eef9.tar.gz",
                     "sha256": "896eb817fb2bc62a0a84ca65fac3e3c385b410e6dbf70d69c411e25776663e39",
                     "dest": "ext/rapidjson"
+                },
+                {
+                    "type": "patch",
+                    "path": "../../patches/libretro-ppsspp-remove-log-callback.patch"
                 }
             ]
         }
