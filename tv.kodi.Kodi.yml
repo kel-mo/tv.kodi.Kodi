@@ -938,6 +938,7 @@ modules:
   - addons/game.libretro.dosbox/game.libretro.dosbox.json
   - addons/game.libretro.dosbox-pure/game.libretro.dosbox-pure.json
   - addons/game.libretro.fceumm/game.libretro.fceumm.json
+  - addons/game.libretro.flycast/game.libretro.flycast.json
   - addons/game.libretro.gambatte/game.libretro.gambatte.json
   - addons/game.libretro.gearsystem/game.libretro.gearsystem.json
   - addons/game.libretro.gw/game.libretro.gw.json
@@ -1298,6 +1299,11 @@ add-extensions:
     no-autodownload: false
   tv.kodi.Kodi.Addon.game.libretro.fceumm:
     directory: lib/kodi/addons/game.libretro.fceumm
+    bundle: true
+    autodelete: true
+    no-autodownload: false
+  tv.kodi.Kodi.Addon.game.libretro.flycast:
+    directory: lib/kodi/addons/game.libretro.flycast
     bundle: true
     autodelete: true
     no-autodownload: false

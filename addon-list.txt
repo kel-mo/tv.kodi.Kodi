@@ -47,6 +47,7 @@ game.libretro.dolphin
 game.libretro.dosbox
 game.libretro.dosbox-pure
 game.libretro.fceumm
+game.libretro.flycast
 game.libretro.gambatte
 game.libretro.gearsystem
 game.libretro.gw
