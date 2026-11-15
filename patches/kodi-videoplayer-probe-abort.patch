@@ -1,0 +1,195 @@
+From 635ee0928725ad27c08422d79bbfa7bf50888bf1 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Tue, 3 Nov 2026 11:36:08 +1000
+Subject: [PATCH] [VideoPlayer] Let a stop interrupt the demuxer probe of any
+ input stream
+
+Only CDVDInputStreamFFmpeg remembered an abort, so CDVDDemuxFFmpeg's
+interrupt callback could stop the probe of streams that FFmpeg opens
+itself (such as HLS, RTSP, RTMP, UDP, and PVR channels with
+inputstream=inputstream.ffmpeg) but nothing else. A stop while any
+other input was being probed, such as a local, smb, nfs or http file
+or a PVR stream, waited for the probe to finish, up to the 30 s open
+timeout, with the app thread blocked in StopThread(): 14 s for a
+70 KB/s http source here, 30 s at 25 KB/s.
+
+Keep the flag in CDVDInputStream, set it in Abort() and have the demuxer
+check it for every input. CDVDInputStreamBluray uses it in place of its
+own, and CInputStreamMultiSource's override calls the base first. The
+flag is never cleared: an input stream is opened once and not reused.
+
+An interrupted probe can still succeed, as FFmpeg keeps the streams it
+already has parameters for, so this relies on the m_bStop check in
+OpenStream() from #30283 to not go on and open them. The probe can now
+end before StopThread() sets m_bStop, so CloseFile() sets it first,
+before it aborts anything. A read already in flight still blocks until
+it returns; CFileCache and CCurlFile have no abort of their own.
+
+Assisted-by: Claude
+(cherry picked from commit 08f8fb1976fd5d1bb2b1d6e56015d89d653c05a6)
+---
+ xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp       | 6 +-----
+ xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStream.h     | 6 +++++-
+ .../VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp    | 5 -----
+ .../VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h      | 5 -----
+ .../VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.cpp    | 2 --
+ .../VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.h      | 6 ------
+ .../VideoPlayer/DVDInputStreams/InputStreamMultiSource.cpp  | 1 +
+ xbmc/cores/VideoPlayer/VideoPlayer.cpp                      | 2 ++
+ 8 files changed, 9 insertions(+), 24 deletions(-)
+
+diff --git a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
+index 42ede8cef4..f10af94934 100644
+--- a/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
++++ b/xbmc/cores/VideoPlayer/DVDDemuxers/DVDDemuxFFmpeg.cpp
+@@ -224,11 +224,7 @@ bool CDVDDemuxFFmpeg::Aborted()
+   if (m_timeout.IsTimePast())
+     return true;
+ 
+-  std::shared_ptr<CDVDInputStreamFFmpeg> input = std::dynamic_pointer_cast<CDVDInputStreamFFmpeg>(m_pInput);
+-  if (input && input->Aborted())
+-    return true;
+-
+-  return false;
++  return m_pInput && m_pInput->Aborted();
+ }
+ 
+ bool CDVDDemuxFFmpeg::IsStreaming() const
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStream.h b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStream.h
+index 2cf54081af..cdb0f7f056 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStream.h
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStream.h
+@@ -16,6 +16,7 @@
+ #include "utils/Geometry.h"
+ #include "video/VideoInfoTag.h"
+ 
++#include <atomic>
+ #include <chrono>
+ #include <cstdint>
+ #include <string>
+@@ -180,7 +181,9 @@ public:
+   virtual std::string GetFileName();
+   virtual CURL GetURL();
+   virtual ENextStream NextStream() { return NEXTSTREAM_NONE; }
+-  virtual void Abort() {}
++  // may be called from another thread; the demuxer stops reading once it's set
++  virtual void Abort() { m_aborted = true; }
++  bool Aborted() const { return m_aborted; }
+   virtual int GetBlockSize() { return 0; }
+   virtual bool CanSeek() { return true; } //! @todo drop this
+   virtual bool CanPause() { return false; }
+@@ -292,4 +295,5 @@ protected:
+   CFileItem m_item;
+   bool m_contentLookup;
+   bool m_realtime;
++  std::atomic_bool m_aborted{false};
+ };
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
+index a74cc27163..1f08b710db 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.cpp
+@@ -86,11 +86,6 @@ CDVDInputStreamBluray::~CDVDInputStreamBluray()
+   Close();
+ }
+ 
+-void CDVDInputStreamBluray::Abort()
+-{
+-  m_aborted = true;
+-}
+-
+ bool CDVDInputStreamBluray::IsEOF()
+ {
+   return false;
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
+index 5a0ebf3d1e..173132ff44 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamBluray.h
+@@ -15,7 +15,6 @@
+ #include "filesystem/UDFContext.h"
+ #endif
+ 
+-#include <atomic>
+ #include <chrono>
+ #include <list>
+ #include <memory>
+@@ -67,7 +66,6 @@ public:
+   int Read(uint8_t* buf, int buf_size) override;
+   int ReadBlocks(uint8_t* buf, int lba, int num_blocks);
+   int64_t Seek(int64_t offset, int whence) override;
+-  void Abort() override;
+   bool IsEOF() override;
+   int64_t GetLength() override;
+   int GetBlockSize() override { return 6144; }
+@@ -201,9 +199,6 @@ protected:
+     HOLD_STILL,
+     HOLD_ERROR,
+   } m_hold = HOLD_NONE;
+-  //! Set by Abort() from the thread closing the player. Kept apart from m_hold, which playback
+-  //! events overwrite
+-  std::atomic<bool> m_aborted{false};
+   //! Units libbluray has failed to read since it last returned data
+   unsigned int m_readErrors = 0;
+   BD_EVENT m_event;
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.cpp b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.cpp
+index 24d4551016..384d820de2 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.cpp
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.cpp
+@@ -38,8 +38,6 @@ bool CDVDInputStreamFFmpeg::Open()
+   if (!CDVDInputStream::Open())
+     return false;
+ 
+-  m_aborted = false;
+-
+   if (StringUtils::CompareNoCase(m_item.GetDynPath(), "udp://", 6) == 0 ||
+       StringUtils::CompareNoCase(m_item.GetDynPath(), "rtp://", 6) == 0)
+   {
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.h b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.h
+index a3ea4d7ef3..cb8994e7dc 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.h
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFFmpeg.h
+@@ -24,9 +24,6 @@ public:
+   int64_t GetLength() override;
+   std::string GetFileName() override;
+ 
+-  void  Abort() override { m_aborted = true;  }
+-  bool Aborted() { return m_aborted;  }
+-
+   const CFileItem& GetItem() const { return m_item; }
+ 
+   std::string GetProxyType() const;
+@@ -34,7 +31,4 @@ public:
+   uint16_t GetProxyPort() const;
+   std::string GetProxyUser() const;
+   std::string GetProxyPassword() const;
+-
+-protected:
+-  bool m_aborted = false;
+ };
+diff --git a/xbmc/cores/VideoPlayer/DVDInputStreams/InputStreamMultiSource.cpp b/xbmc/cores/VideoPlayer/DVDInputStreams/InputStreamMultiSource.cpp
+index 9dcbffdf4e..8a19304c3f 100644
+--- a/xbmc/cores/VideoPlayer/DVDInputStreams/InputStreamMultiSource.cpp
++++ b/xbmc/cores/VideoPlayer/DVDInputStreams/InputStreamMultiSource.cpp
+@@ -29,6 +29,7 @@ CInputStreamMultiSource::~CInputStreamMultiSource()
+ 
+ void CInputStreamMultiSource::Abort()
+ {
++  CDVDInputStream::Abort();
+   for (const auto& iter : m_InputStreams)
+     iter->Abort();
+ }
+diff --git a/xbmc/cores/VideoPlayer/VideoPlayer.cpp b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+index b5cd397835..9eabb10287 100644
+--- a/xbmc/cores/VideoPlayer/VideoPlayer.cpp
++++ b/xbmc/cores/VideoPlayer/VideoPlayer.cpp
+@@ -871,6 +871,8 @@ bool CVideoPlayer::CloseFile(bool reopen)
+   // set the abort request so that other threads can finish up
+   m_bAbortRequest = true;
+   m_bCloseRequest = true;
++  // OpenStream() bails out on it, StopThread() sets it again
++  m_bStop = true;
+ 
+   // tell demuxer to abort
+   if(m_pDemuxer)
+-- 
+2.55.0
+
