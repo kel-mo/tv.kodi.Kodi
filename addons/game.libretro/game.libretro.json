@@ -36,6 +36,10 @@
             "path": "../../patches/game.libretro-own-system-folder.patch"
         },
         {
+            "type": "patch",
+            "path": "../../patches/game.libretro-headless-surface.patch"
+        },
+        {
             "type": "file",
             "path": "../../tools/gen-addon-metainfo.sh"
         }

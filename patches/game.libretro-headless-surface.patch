@@ -1,0 +1,219 @@
+diff -ruN a/src/video/vulkan/VulkanBridge.cpp b/src/video/vulkan/VulkanBridge.cpp
+--- a/src/video/vulkan/VulkanBridge.cpp
++++ b/src/video/vulkan/VulkanBridge.cpp
+@@ -34,6 +34,12 @@
+ {
+ constexpr uint32_t DRM_FORMAT_ABGR8888_ = 0x34324241; // 'AB24', R8G8B8A8 in memory order
+ 
++// A surface for cores that only present when given one, as Dolphin
++const char* const SURFACE_EXTENSIONS[] = {
++    VK_KHR_SURFACE_EXTENSION_NAME,
++    VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME,
++};
++
+ const char* const MEMORY_EXTENSIONS[] = {
+     VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+     VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME,
+@@ -69,6 +75,9 @@
+ {
+   PFN_vkGetInstanceProcAddr GetInstanceProcAddr;
+   PFN_vkCreateInstance CreateInstance;
++  PFN_vkEnumerateInstanceExtensionProperties EnumerateInstanceExtensionProperties;
++  PFN_vkCreateHeadlessSurfaceEXT CreateHeadlessSurfaceEXT;
++  PFN_vkDestroySurfaceKHR DestroySurfaceKHR;
+   PFN_vkDestroyInstance DestroyInstance;
+   PFN_vkEnumeratePhysicalDevices EnumeratePhysicalDevices;
+   PFN_vkEnumerateDeviceExtensionProperties EnumerateDeviceExtensionProperties;
+@@ -179,6 +188,11 @@
+   vk->CreateInstance = reinterpret_cast<PFN_vkCreateInstance>(
+       vk->GetInstanceProcAddr ? vk->GetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance")
+                               : nullptr);
++  vk->EnumerateInstanceExtensionProperties =
++      reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
++          vk->GetInstanceProcAddr
++              ? vk->GetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties")
++              : nullptr);
+ 
+   auto gl = std::make_unique<GLFunctions>();
+   gl->GetProcAddress =
+@@ -301,6 +315,11 @@
+   {
+     VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+     ici.pApplicationInfo = &app;
++    if (m_headless)
++    {
++      ici.enabledExtensionCount = static_cast<uint32_t>(std::size(SURFACE_EXTENSIONS));
++      ici.ppEnabledExtensionNames = SURFACE_EXTENSIONS;
++    }
+     if (vk.CreateInstance(&ici, nullptr, &m_instance) != VK_SUCCESS)
+     {
+       kodi::Log(ADDON_LOG_ERROR, "Vulkan bridge: vkCreateInstance failed");
+@@ -322,6 +341,8 @@
+   LOAD_INSTANCE(GetPhysicalDeviceExternalSemaphoreProperties);
+   LOAD_INSTANCE(CreateDevice);
+   LOAD_INSTANCE(GetDeviceProcAddr);
++  LOAD_INSTANCE(CreateHeadlessSurfaceEXT);
++  LOAD_INSTANCE(DestroySurfaceKHR);
+ #undef LOAD_INSTANCE
+   return true;
+ }
+@@ -359,6 +380,23 @@
+   return shared;
+ }
+ 
++bool CVulkanBridge::HasHeadlessSurface()
++{
++  uint32_t count = 0;
++  if (!m_vk->EnumerateInstanceExtensionProperties ||
++      m_vk->EnumerateInstanceExtensionProperties(nullptr, &count, nullptr) != VK_SUCCESS)
++    return false;
++  std::vector<VkExtensionProperties> extensions(count);
++  m_vk->EnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
++  return std::all_of(std::begin(SURFACE_EXTENSIONS), std::end(SURFACE_EXTENSIONS),
++                     [&](const char* name)
++                     {
++                       return std::any_of(extensions.begin(), extensions.end(),
++                                          [name](const VkExtensionProperties& extension)
++                                          { return std::strcmp(extension.extensionName, name) == 0; });
++                     });
++}
++
+ bool CVulkanBridge::HasDeviceExtension(VkPhysicalDevice gpu, const char* name)
+ {
+   uint32_t count = 0;
+@@ -446,8 +484,21 @@
+   if (app.apiVersion < VK_API_VERSION_1_2)
+     app.apiVersion = VK_API_VERSION_1_2;
+ 
++  std::vector<const char*> extensions(
++      createInfo->ppEnabledExtensionNames,
++      createInfo->ppEnabledExtensionNames + createInfo->enabledExtensionCount);
++  for (const char* name : SURFACE_EXTENSIONS)
++  {
++    if (bridge->m_headless &&
++        std::none_of(extensions.begin(), extensions.end(),
++                     [name](const char* other) { return std::strcmp(name, other) == 0; }))
++      extensions.push_back(name);
++  }
++
+   VkInstanceCreateInfo info = *createInfo;
+   info.pApplicationInfo = &app;
++  info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
++  info.ppEnabledExtensionNames = extensions.data();
+   VkInstance instance = VK_NULL_HANDLE;
+   if (bridge->m_vk->CreateInstance(&info, nullptr, &instance) != VK_SUCCESS)
+     return VK_NULL_HANDLE;
+@@ -486,6 +537,7 @@
+ 
+   // Fields past destroy_device only exist from version 2
+   const bool v2 = m_negotiation && m_negotiation->interface_version >= 2;
++  m_headless = HasHeadlessSurface();
+   if (m_negotiation)
+     kodi::Log(ADDON_LOG_DEBUG, "Vulkan bridge: negotiation version %u%s%s",
+               m_negotiation->interface_version,
+@@ -497,6 +549,13 @@
+                       v2 && m_negotiation->create_instance))
+     return false;
+ 
++  if (m_headless)
++  {
++    VkHeadlessSurfaceCreateInfoEXT hci{VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT};
++    if (vk.CreateHeadlessSurfaceEXT(m_instance, &hci, nullptr, &m_surface) != VK_SUCCESS)
++      m_surface = VK_NULL_HANDLE;
++  }
++
+   uint32_t count = 0;
+   vk.EnumeratePhysicalDevices(m_instance, &count, nullptr);
+   std::vector<VkPhysicalDevice> gpus(count);
+@@ -512,26 +571,39 @@
+   retro_vulkan_context context{};
+   const bool coreMakesDevice =
+       m_negotiation && ((v2 && m_negotiation->create_device2) || m_negotiation->create_device);
+-  bool byCore = false;
+-  if (v2 && m_negotiation->create_device2)
++  VkSurfaceKHR surfaceUsed = VK_NULL_HANDLE;
++  const auto coreDevice = [&](VkPhysicalDevice gpu, VkSurfaceKHR surface)
+   {
+-    byCore = m_negotiation->create_device2(&context, m_instance, m_gpu, VK_NULL_HANDLE,
++    context = {};
++    surfaceUsed = surface;
++    if (v2 && m_negotiation->create_device2)
++      return m_negotiation->create_device2(&context, m_instance, gpu, surface,
+                                            vk.GetInstanceProcAddr, CreateDeviceWrapper, this);
+-    if (!byCore)
++    const VkPhysicalDeviceFeatures features{}; // cores read it without checking for null
++    return m_negotiation->create_device(&context, m_instance, gpu, surface, vk.GetInstanceProcAddr,
++                                        extensions.data(),
++                                        static_cast<unsigned int>(extensions.size()), nullptr, 0,
++                                        &features);
++  };
++  bool byCore = false;
++  if (coreMakesDevice)
++  {
++    byCore = coreDevice(m_gpu, m_surface);
++    if (!byCore && v2 && m_negotiation->create_device2)
+     {
+       // libretro_vulkan.h: let the core choose the GPU once
+       kodi::Log(ADDON_LOG_INFO, "Vulkan bridge: the core can't use Kodi's GPU, letting it choose");
+-      context = {};
+-      byCore = m_negotiation->create_device2(&context, m_instance, VK_NULL_HANDLE, VK_NULL_HANDLE,
+-                                             vk.GetInstanceProcAddr, CreateDeviceWrapper, this);
++      byCore = coreDevice(VK_NULL_HANDLE, m_surface);
+     }
+-  }
+-  else if (m_negotiation && m_negotiation->create_device)
+-  {
+-    const VkPhysicalDeviceFeatures features{}; // cores read it without checking for null
+-    byCore = m_negotiation->create_device(
+-        &context, m_instance, m_gpu, VK_NULL_HANDLE, vk.GetInstanceProcAddr, extensions.data(),
+-        static_cast<unsigned int>(extensions.size()), nullptr, 0, &features);
++    // a core that fails with the surface gets none, as before there was one
++    if (!byCore && m_surface)
++    {
++      kodi::Log(ADDON_LOG_INFO, "Vulkan bridge: the core failed with a surface, trying without");
++      byCore = coreDevice(m_gpu, VK_NULL_HANDLE);
++    }
++    if (byCore)
++      kodi::Log(ADDON_LOG_DEBUG, "Vulkan bridge: the core made its device %s",
++                surfaceUsed ? "with a headless surface" : "without a surface");
+   }
+ 
+   if (coreMakesDevice)
+@@ -726,6 +798,10 @@
+   m_deviceByCore = false;
+   m_syncFd = false;
+ 
++  if (m_surface)
++    m_vk->DestroySurfaceKHR(m_instance, m_surface, nullptr);
++  m_surface = VK_NULL_HANDLE;
++  m_headless = false;
+   if (m_instance)
+     m_vk->DestroyInstance(m_instance, nullptr);
+   m_instance = VK_NULL_HANDLE;
+diff -ruN a/src/video/vulkan/VulkanBridge.h b/src/video/vulkan/VulkanBridge.h
+--- a/src/video/vulkan/VulkanBridge.h
++++ b/src/video/vulkan/VulkanBridge.h
+@@ -69,6 +69,7 @@
+     VkPhysicalDevice ChooseGpu(const VkPhysicalDevice* gpus, uint32_t count);
+     bool HasDeviceExtension(VkPhysicalDevice gpu, const char* name);
+     bool CanShareSemaphores(VkPhysicalDevice gpu);
++    bool HasHeadlessSurface();
+     std::vector<const char*> DeviceExtensions(VkPhysicalDevice gpu);
+     bool CreateDevice();
+     bool CreateFrames();
+@@ -101,6 +102,7 @@
+     bool m_created = false;
+     const retro_hw_render_context_negotiation_interface_vulkan* m_negotiation = nullptr;
+     bool m_deviceByCore = false;
++    bool m_headless = false; // the instance has VK_EXT_headless_surface
+ 
+     void* m_libVulkan = nullptr;
+     void* m_libEGL = nullptr;
+@@ -108,6 +110,7 @@
+     GLFunctions* m_gl = nullptr;
+ 
+     VkInstance m_instance = VK_NULL_HANDLE;
++    VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+     VkPhysicalDevice m_gpu = VK_NULL_HANDLE;
+     VkDevice m_device = VK_NULL_HANDLE;
+     VkQueue m_queue = VK_NULL_HANDLE;
