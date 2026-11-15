@@ -1,0 +1,147 @@
+{
+    "name": "game.libretro.ppsspp",
+    "buildsystem": "cmake-ninja",
+    "build-options": {
+        "no-debuginfo": true,
+        "cflags": "-g0",
+        "cxxflags": "-g0"
+    },
+    "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DPACKAGE_ZIP=ON",
+        "-DCMAKE_INSTALL_PREFIX=/app/lib/kodi/addons",
+        "-DCMAKE_PREFIX_PATH=/app"
+    ],
+    "sources": [
+        {
+            "type": "git",
+            "url": "https://github.com/kodi-game/game.libretro.ppsspp",
+            "commit": "53920259a836bc7282cc554c8efac8b11f8406d6"
+        },
+        {
+            "type": "file",
+            "path": "../../tools/gen-addon-metainfo.sh"
+        }
+    ],
+    "modules": [
+        {
+            "name": "libretro-ppsspp",
+            "buildsystem": "cmake-ninja",
+            "builddir": true,
+            "build-options": {
+                "no-debuginfo": true,
+                "cflags": "-g0",
+                "cxxflags": "-g0",
+                "ldflags": "-Wl,--push-state,--no-as-needed -lGLESv2 -lEGL -Wl,--pop-state"
+            },
+            "config-opts": [
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DLIBRETRO=ON",
+                "-DUSING_GLES2=ON",
+                "-DUSING_X11_VULKAN=OFF",
+                "-DUSE_WAYLAND_WSI=OFF",
+                "-DUSE_SYSTEM_ZSTD=ON",
+                "-DUSE_SYSTEM_FFMPEG=ON",
+                "-DFFMPEG_DIR=/app",
+                "-DARMIPS_USE_STD_FILESYSTEM=ON"
+            ],
+            "make-args": [
+                "ppsspp_libretro"
+            ],
+            "no-make-install": true,
+            "post-install": [
+                "install -s -D -m 755 \"$(find . -name ppsspp_libretro.so -print -quit)\" /app/lib/libretro/ppsspp_libretro.so",
+                "mkdir -p /app/lib/libretro/PPSSPP",
+                "cd $FLATPAK_BUILDER_BUILDDIR/assets && cp -a compat.ini compatvr.ini langregion.ini infra-dns.json adhoc-servers.json redump.csv ppge_atlas.zim ppge_atlas.meta flash0 lang shaders /app/lib/libretro/PPSSPP/",
+                "install -m 644 $FLATPAK_BUILDER_BUILDDIR/LICENSE.TXT /app/lib/libretro/PPSSPP/LICENSE.TXT"
+            ],
+            "cleanup": [
+                "/lib/libretro"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/hrydgard/ppsspp/archive/1a7c92107ddd49bb61edd7c36d7232fa98d227ec.tar.gz",
+                    "sha256": "e2b28e7ada3947da4410aa80ec8ddd34039c78bf7b8e9394429d1b89fcee639a"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/libretro/libretro-common/archive/4ed412f88fedd38750c898f75178b4f7d15274fb.tar.gz",
+                    "sha256": "4d4e8be52a3022b82c9170bf5cea78ad6c3309d4f23d15b6390432b6452c8f54",
+                    "dest": "libretro/libretro-common"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/Kingcom/armips/archive/62adab4ef30da765f5cf22a451eb08a59c54dc8b.tar.gz",
+                    "sha256": "f7a65102febb4811a336a06e6d93c7e84cc86548182d54e1b1b4e2bffe562f56",
+                    "dest": "ext/armips"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/hrydgard/glslang/archive/50e0708ec3a5c16020c4f845c654b80b8edb80bd.tar.gz",
+                    "sha256": "15941716c09bdb476e8eefcec24b8c8359e5e7bca3bfebe648b6a2206689c485",
+                    "dest": "ext/glslang"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/KhronosGroup/SPIRV-Cross/archive/f11ba9f0b21ba8fc15153d50a2a1ae31ab1cf8f7.tar.gz",
+                    "sha256": "92b0458889ed77eac9892b3be5a41e3cf716849fd90f39632e159e555abf3d03",
+                    "dest": "ext/SPIRV-Cross"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/RetroAchievements/rcheevos/archive/eea6461f172d37d36b0d56568f13a505e0a9fd86.tar.gz",
+                    "sha256": "b7ef4553facaf2fc05d0231e0df6d5d19ac7f140dd47fa40b396107dad5618b0",
+                    "dest": "ext/rcheevos"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/hrydgard/ppsspp-lua/archive/7648485f14e8e5ee45e8e39b1eb4d3206dbd405a.tar.gz",
+                    "sha256": "ee31027159979d7be564e19710e10339179992f6d663d38337e78340dd31987b",
+                    "dest": "ext/lua"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/google/cpu_features/archive/fd4ffc1632db7b4e763bd28ffa6fc9d761cf3587.tar.gz",
+                    "sha256": "60b2e0e7adfbf40f0c69fb77ad197440a8435532285a83b19f99b4f886cca67a",
+                    "dest": "ext/cpu_features"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/rtissera/libchdr/archive/47d794151b2b64f6aba60304e6480f4f5a2bc24b.tar.gz",
+                    "sha256": "ee1131e748a2c7d7559b7054540ebe49637433901f92071560df52e369f7c7af",
+                    "dest": "ext/libchdr"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/miniupnp/miniupnp/archive/27d13ca9beeb5541f5fbf11959dced03dac39972.tar.gz",
+                    "sha256": "a07a32b2db1f6c5f2823847d47ba6e326b08fbcfe78690801fda9c3aeddf25a3",
+                    "dest": "ext/miniupnp"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/Kethen/aemu_postoffice/archive/02abf18fd161a1639d9f93c48c4c46638c7c6d15.tar.gz",
+                    "sha256": "0d9fb9cc0f350ed0b3634420ff90a0fea82ce973227c250943c14d03b56ee7b0",
+                    "dest": "ext/aemu_postoffice"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/KhronosGroup/OpenXR-SDK/archive/be392bf6949adeeabad5082aa79d12aacbda781f.tar.gz",
+                    "sha256": "f91007ec5cd5380184678cb282353a6b97b6ba2278ef4911e217472186a31762",
+                    "dest": "ext/OpenXR-SDK"
+                },
+                {
+                    "type": "archive",
+                    "url": "https://github.com/Tencent/rapidjson/archive/73063f5002612c6bf64fe24f851cd5cc0d83eef9.tar.gz",
+                    "sha256": "896eb817fb2bc62a0a84ca65fac3e3c385b410e6dbf70d69c411e25776663e39",
+                    "dest": "ext/rapidjson"
+                }
+            ]
+        }
+    ],
+    "post-install": [
+        "rm -rf /app/lib/kodi/addons/game.libretro.ppsspp/resources/system/PPSSPP",
+        "mv /app/lib/libretro/PPSSPP /app/lib/kodi/addons/game.libretro.ppsspp/resources/system/PPSSPP",
+        "bash $FLATPAK_BUILDER_BUILDDIR/gen-addon-metainfo.sh game.libretro.ppsspp"
+    ]
+}

@@ -65,6 +65,7 @@ game.libretro.nx
 game.libretro.o2em
 game.libretro.pcsx-rearmed
 game.libretro.pokemini
+game.libretro.ppsspp
 game.libretro.prboom
 game.libretro.prosystem
 game.libretro.quicknes

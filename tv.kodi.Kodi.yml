@@ -956,6 +956,7 @@ modules:
   - addons/game.libretro.o2em/game.libretro.o2em.json
   - addons/game.libretro.pcsx-rearmed/game.libretro.pcsx-rearmed.json
   - addons/game.libretro.pokemini/game.libretro.pokemini.json
+  - addons/game.libretro.ppsspp/game.libretro.ppsspp.json
   - addons/game.libretro.prboom/game.libretro.prboom.json
   - addons/game.libretro.prosystem/game.libretro.prosystem.json
   - addons/game.libretro.quicknes/game.libretro.quicknes.json
@@ -1389,6 +1390,11 @@ add-extensions:
     no-autodownload: false
   tv.kodi.Kodi.Addon.game.libretro.pokemini:
     directory: lib/kodi/addons/game.libretro.pokemini
+    bundle: true
+    autodelete: true
+    no-autodownload: false
+  tv.kodi.Kodi.Addon.game.libretro.ppsspp:
+    directory: lib/kodi/addons/game.libretro.ppsspp
     bundle: true
     autodelete: true
     no-autodownload: false
