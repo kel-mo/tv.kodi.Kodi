@@ -838,6 +838,8 @@ modules:
         path: patches/kodi-videoplayer-paused-eof-wait.patch
       - type: patch
         path: patches/kodi-videots-plugin-dynpath.patch
+      - type: patch
+        path: patches/kodi-monitor-abort-late.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
