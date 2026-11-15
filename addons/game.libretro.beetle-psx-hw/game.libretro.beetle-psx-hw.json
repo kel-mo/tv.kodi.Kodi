@@ -19,6 +19,10 @@
             "commit": "7f135ce881b61d1e7fd1bb4d1fad88311dac8f7b"
         },
         {
+            "type": "patch",
+            "path": "game.libretro.beetle-psx-hw-001-vulkan-renderer-settings.patch"
+        },
+        {
             "type": "file",
             "path": "../../tools/gen-addon-metainfo.sh"
         }
@@ -33,7 +37,7 @@
                 "cxxflags": "-g0"
             },
             "build-commands": [
-                "make -j$FLATPAK_BUILDER_N_JOBS PREFIX=/app HAVE_OPENGL=1 GLES3=1 GL_LIB=-lGLESv2 HAVE_CDROM=1 LINK_STATIC_LIBCPLUSPLUS=0",
+                "make -j$FLATPAK_BUILDER_N_JOBS PREFIX=/app HAVE_OPENGL=1 HAVE_VULKAN=1 GLES3=1 GL_LIB=-lGLESv2 HAVE_CDROM=1 LINK_STATIC_LIBCPLUSPLUS=0",
                 "install -s -D -m 755 mednafen_psx_hw_libretro.so /app/lib/libretro/mednafen_psx_hw_libretro.so"
             ],
             "cleanup": [

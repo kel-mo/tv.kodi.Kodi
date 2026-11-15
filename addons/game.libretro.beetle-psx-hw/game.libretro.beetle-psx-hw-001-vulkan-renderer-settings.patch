@@ -1,0 +1,488 @@
+The add-on's settings were generated from a build without Vulkan, so they
+lack Hardware (Vulkan) and the 18 options only the Vulkan renderer has, and
+Kodi logs each missing option as an error when the core starts. Add them in
+the form kodi-game-scripting writes, from the core's options at 7efcb4d7.
+
+diff --git a/game.libretro.beetle-psx-hw/resources/language/resource.language.en_gb/strings.po b/game.libretro.beetle-psx-hw/resources/language/resource.language.en_gb/strings.po
+index f43e2be..7c526f2 100644
+--- a/game.libretro.beetle-psx-hw/resources/language/resource.language.en_gb/strings.po
++++ b/game.libretro.beetle-psx-hw/resources/language/resource.language.en_gb/strings.po
+@@ -2589,3 +2589,235 @@ msgstr ""
+ msgctxt "#30657"
+ msgid "Disabled (Allow Overrides)"
+ msgstr ""
++
++msgctxt "#30658"
++msgid "Hardware (Vulkan)"
++msgstr ""
++
++msgctxt "#30659"
++msgid "Texture UV Offset"
++msgstr ""
++
++msgctxt "#30660"
++msgid "Sample textures for 3D polygons at an offset for higher than 1x internal resolution. Reduces texture seams but may cause unintended graphical glitches."
++msgstr ""
++
++msgctxt "#30661"
++msgid "Exclude Sprites from Filtering"
++msgstr ""
++
++msgctxt "#30662"
++msgid "Do not apply texture filtering to sprites. Prevents seams in various games with 2D sprite-rendered backgrounds. Use together with Adaptive Smoothing or another post-processing filter for best effect."
++msgstr ""
++
++msgctxt "#30663"
++msgid "Opaque Only"
++msgstr ""
++
++msgctxt "#30664"
++msgid "Opaque and Semi-Transparent"
++msgstr ""
++
++msgctxt "#30665"
++msgid "Exclude 2D Polygons from Filtering"
++msgstr ""
++
++msgctxt "#30666"
++msgid "Do not apply texture filtering to 2D polygons. 2D polygons are detected with a heuristic and there may be glitches. Use together with Adaptive Smoothing or another post-processing filter for best effect."
++msgstr ""
++
++msgctxt "#30667"
++msgid "Adaptive Smoothing"
++msgstr ""
++
++msgctxt "#30668"
++msgid "Smooth out 2D artwork and UI elements without blurring 3D rendered objects. Only supported by the Vulkan renderer."
++msgstr ""
++
++msgctxt "#30669"
++msgid "Supersampling (Downsample to Native Resolution)"
++msgstr ""
++
++msgctxt "#30670"
++msgid "Downsample rendered content from upscaled internal resolution down to native resolution. Combining this with higher internal resolution multipliers allows for games to be displayed with anti-aliased 3D objects at native low resolution. Produces best results when applied to titles that mix 2D and 3D elements (e.g. 3D characters on pre-rendered backgrounds), and works well in conjunction with CRT shaders. Only supported by the Vulkan renderer. Note: 'Dithering Pattern' is recommended to be disabled when enabling this option."
++msgstr ""
++
++msgctxt "#30671"
++msgid "Multi-Sampled Anti Aliasing"
++msgstr ""
++
++msgctxt "#30672"
++msgid "MSAA improves the appearance of 3D objects. Only supported by the Vulkan renderer."
++msgstr ""
++
++msgctxt "#30673"
++msgid "1x"
++msgstr ""
++
++msgctxt "#30674"
++msgid "MDEC YUV Chroma Filter"
++msgstr ""
++
++msgctxt "#30675"
++msgid "Improve the quality of FMV playback by reducing 'macroblocking' artifacts (squares/jagged edges). Only supported by the Vulkan renderer."
++msgstr ""
++
++msgctxt "#30676"
++msgid "Track Textures"
++msgstr ""
++
++msgctxt "#30677"
++msgid "Prerequisite for texture dumping and replacement. Will probably crash in most games."
++msgstr ""
++
++msgctxt "#30678"
++msgid "Dump Textures"
++msgstr ""
++
++msgctxt "#30679"
++msgid "Dump used textures to <cd>-texture-dump/"
++msgstr ""
++
++msgctxt "#30680"
++msgid "HD Dump Mode"
++msgstr ""
++
++msgctxt "#30681"
++msgid "How dumped textures are laid out (experimental). 'Upload-rect' (default) dumps each tracked upload to <cd>-texture-dump/ (matches stock Beetle). 'Page-aligned' dumps whole VRAM texture pages to <cd>-texture-dump-pages/ for cleaner tiles. 'Both' dumps to both folders simultaneously, so a single playthrough collects both pack types (folders stay separate; pick which to edit afterwards). Page packs are NOT interchangeable with upload-rect packs (the hash covers a different region)."
++msgstr ""
++
++msgctxt "#30682"
++msgid "Upload-rect (match master)"
++msgstr ""
++
++msgctxt "#30683"
++msgid "Page-aligned (experimental)"
++msgstr ""
++
++msgctxt "#30684"
++msgid "Both (dump to both folders)"
++msgstr ""
++
++msgctxt "#30685"
++msgid "Replace Textures"
++msgstr ""
++
++msgctxt "#30686"
++msgid "Replace textures using HD versions from <cd>-texture-replacements/"
++msgstr ""
++
++msgctxt "#30687"
++msgid "HD Texture Folder"
++msgstr ""
++
++msgctxt "#30688"
++msgid "Where texture dump and replacement folders are kept. 'Content directory' (default) keeps them next to the game image (current behaviour). 'System directory' / 'Save directory' put them under RetroArch's configured System or Save folder instead - one central location for every game's packs (set those paths in Settings > Directory). Each game still gets its own '<name>-texture-dump' / '-replacements' subfolder, so games never collide. Changing this re-scans replacements from the new folder."
++msgstr ""
++
++msgctxt "#30689"
++msgid "Content directory (default)"
++msgstr ""
++
++msgctxt "#30690"
++msgid "System directory"
++msgstr ""
++
++msgctxt "#30691"
++msgid "Save directory"
++msgstr ""
++
++msgctxt "#30692"
++msgid "HD Replacement Mode"
++msgstr ""
++
++msgctxt "#30693"
++msgid "Where replacement textures are looked up (experimental). 'Upload-rect' (default) matches per-upload textures from <cd>-texture-replacements/ (matches stock Beetle). 'Page-aligned' matches whole VRAM pages from <cd>-texture-replacements-pages/. Independent of HD Dump Mode; page packs are NOT interchangeable with upload-rect packs."
++msgstr ""
++
++msgctxt "#30694"
++msgid "HD Replacement Cross-Mode Fallback"
++msgstr ""
++
++msgctxt "#30695"
++msgid "On an HD texture miss in the active HD Replacement Mode, also check the OTHER mode's folder before falling back to native. Works both ways: an upload-rect pack can fill gaps from a page-aligned pack and vice-versa, without converting packs. Best with the Lazy caching method."
++msgstr ""
++
++msgctxt "#30696"
++msgid "HD Reduce Palette Range"
++msgstr ""
++
++msgctxt "#30697"
++msgid "Opt-in. When dumping/replacing HD textures, hash only the palette (CLUT) entries the texture actually uses instead of the whole CLUT. This makes a texture's hash ignore unused palette entries that games often leave as garbage or rewrite over time, so one replacement keeps matching across those variations - fewer dumps and far better match coverage (most useful for 8bpp textures). Filenames are unchanged in format and remain loadable; old full-palette packs still match with this enabled (the matcher falls back to the full-palette hash when no reduced file is present). Applies to both the upload-rect and page-aligned paths. Re-dump a game to benefit."
++msgstr ""
++
++msgctxt "#30698"
++msgid "HD Texture Caching Method"
++msgstr ""
++
++msgctxt "#30699"
++msgid "How HD replacement textures are loaded. 'Eager' prefetches all palette variants of a texture when it is uploaded (matches stock Beetle). 'Lazy' loads each texture+palette only when first drawn, in the background (leaner; brief pop-in possible on first use). 'Lazy (synchronous)' also loads on first use but blocks the renderer until ready (no pop-in, but may briefly stutter when many new textures appear at once). Both use the VRAM/RAM caches and budgets below."
++msgstr ""
++
++msgctxt "#30700"
++msgid "Eager (match master)"
++msgstr ""
++
++msgctxt "#30701"
++msgid "Lazy (async, on demand)"
++msgstr ""
++
++msgctxt "#30702"
++msgid "Lazy (synchronous, no pop-in)"
++msgstr ""
++
++msgctxt "#30703"
++msgid "HD Texture VRAM Cache Budget"
++msgstr ""
++
++msgctxt "#30704"
++msgid "Maximum VRAM used to keep uploaded HD replacement textures resident. Higher keeps more textures ready (smoother) but can exhaust VRAM on smaller GPUs and cause slowdown; lower it if you see stutter. Only used with Replace Textures."
++msgstr ""
++
++msgctxt "#30705"
++msgid "256 MB"
++msgstr ""
++
++msgctxt "#30706"
++msgid "512 MB"
++msgstr ""
++
++msgctxt "#30707"
++msgid "1 GB"
++msgstr ""
++
++msgctxt "#30708"
++msgid "1.5 GB"
++msgstr ""
++
++msgctxt "#30709"
++msgid "2 GB"
++msgstr ""
++
++msgctxt "#30710"
++msgid "3 GB"
++msgstr ""
++
++msgctxt "#30711"
++msgid "4 GB"
++msgstr ""
++
++msgctxt "#30712"
++msgid "6 GB"
++msgstr ""
++
++msgctxt "#30713"
++msgid "8 GB"
++msgstr ""
++
++msgctxt "#30714"
++msgid "HD Texture RAM Cache Budget"
++msgstr ""
++
++msgctxt "#30715"
++msgid "Maximum system RAM used to keep decoded HD replacement textures, so they don't have to be re-read from disk. Only used with Replace Textures."
++msgstr ""
+diff --git a/game.libretro.beetle-psx-hw/resources/settings.xml b/game.libretro.beetle-psx-hw/resources/settings.xml
+index 71eae1b..3b60fe0 100644
+--- a/game.libretro.beetle-psx-hw/resources/settings.xml
++++ b/game.libretro.beetle-psx-hw/resources/settings.xml
+@@ -199,6 +199,7 @@
+ 						<options>
+ 							<option label="30183">hardware</option>
+ 							<option label="30184">hardware_gl</option>
++							<option label="30658">hardware_vk</option>
+ 							<option label="30185">software</option>
+ 						</options>
+ 					</constraints>
+@@ -348,6 +349,17 @@
+ 					</constraints>
+ 					<control type="list" format="string" />
+ 				</setting>
++				<setting id="beetle_psx_hw_scaled_uv_offset" type="string" label="30659" help="30660">
++					<level>0</level>
++					<default>enabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
+ 				<setting id="beetle_psx_hw_filter" type="string" label="30004" help="30237">
+ 					<level>0</level>
+ 					<default>nearest</default>
+@@ -363,6 +375,212 @@
+ 					</constraints>
+ 					<control type="list" format="string" />
+ 				</setting>
++				<setting id="beetle_psx_hw_filter_exclude_sprite" type="string" label="30661" help="30662">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="30663">opaque</option>
++							<option label="30664">all</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_filter_exclude_2d_polygon" type="string" label="30665" help="30666">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="30663">opaque</option>
++							<option label="30664">all</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_adaptive_smoothing" type="string" label="30667" help="30668">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_super_sampling" type="string" label="30669" help="30670">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_msaa" type="string" label="30671" help="30672">
++					<level>0</level>
++					<default>1x</default>
++					<constraints>
++						<options>
++							<option label="30673">1x</option>
++							<option label="30153">2x</option>
++							<option label="30154">4x</option>
++							<option label="30155">8x</option>
++							<option label="30156">16x</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_mdec_yuv" type="string" label="30674" help="30675">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_track_textures" type="string" label="30676" help="30677">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_dump_textures" type="string" label="30678" help="30679">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_hd_dump_mode" type="string" label="30680" help="30681">
++					<level>0</level>
++					<default>upload_rect</default>
++					<constraints>
++						<options>
++							<option label="30682">upload_rect</option>
++							<option label="30683">page_aligned</option>
++							<option label="30684">both</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_replace_textures" type="string" label="30685" help="30686">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_texture_directory" type="string" label="30687" help="30688">
++					<level>0</level>
++					<default>content</default>
++					<constraints>
++						<options>
++							<option label="30689">content</option>
++							<option label="30690">system</option>
++							<option label="30691">save</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_hd_replacement_mode" type="string" label="30692" help="30693">
++					<level>0</level>
++					<default>upload_rect</default>
++					<constraints>
++						<options>
++							<option label="30682">upload_rect</option>
++							<option label="30683">page_aligned</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_hd_replacement_fallback" type="string" label="30694" help="30695">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_reduce_palette_range" type="string" label="30696" help="30697">
++					<level>0</level>
++					<default>disabled</default>
++					<constraints>
++						<options>
++							<option label="13106">disabled</option>
++							<option label="305">enabled</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_hd_caching_method" type="string" label="30698" help="30699">
++					<level>0</level>
++					<default>eager</default>
++					<constraints>
++						<options>
++							<option label="30700">eager</option>
++							<option label="30701">lazy</option>
++							<option label="30702">lazy_sync</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_hd_cache_vram_budget" type="string" label="30703" help="30704">
++					<level>0</level>
++					<default>3072</default>
++					<constraints>
++						<options>
++							<option label="30705">256</option>
++							<option label="30706">512</option>
++							<option label="30707">1024</option>
++							<option label="30708">1536</option>
++							<option label="30709">2048</option>
++							<option label="30710">3072</option>
++							<option label="30711">4096</option>
++							<option label="30712">6144</option>
++							<option label="30713">8192</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
++				<setting id="beetle_psx_hw_hd_cache_ram_budget" type="string" label="30714" help="30715">
++					<level>0</level>
++					<default>2048</default>
++					<constraints>
++						<options>
++							<option label="30705">256</option>
++							<option label="30706">512</option>
++							<option label="30707">1024</option>
++							<option label="30709">2048</option>
++							<option label="30711">4096</option>
++							<option label="30713">8192</option>
++						</options>
++					</constraints>
++					<control type="list" format="string" />
++				</setting>
+ 				<setting id="beetle_psx_hw_core_timing_fps" type="string" label="30045" help="30244">
+ 					<level>0</level>
+ 					<default>auto_toggle</default>
