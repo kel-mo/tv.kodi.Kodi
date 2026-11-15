@@ -1,0 +1,126 @@
+From 19d3c0d04699a4cee2ca651b705b7288550d1b47 Mon Sep 17 00:00:00 2001
+From: Kel Modderman <kelvmod@gmail.com>
+Date: Sun, 15 Nov 2026 10:38:35 +1000
+Subject: [PATCH] Give an emulator with no system files its own folder
+
+Only an emulator that comes with system files was moved to its own
+folder in the profile. One that comes with none was still given the
+system folder of the folder it's installed in, which is read-only in the
+flatpak and in distribution packages, so a core that writes there lost
+what it wrote: Flycast keeps its shared VMU saves and its flash memory
+there. Give it its own folder when that system folder doesn't exist. A
+copy that fails still leaves the emulator the folder its files are in.
+
+Assisted-by: Claude
+---
+ src/libretro/LibretroResources.cpp | 15 ++++++++++++---
+ tests/CMakeLists.txt               |  2 +-
+ tests/TestReload.cpp               | 25 ++++++++++++++++++++-----
+ 3 files changed, 33 insertions(+), 9 deletions(-)
+
+diff --git a/src/libretro/LibretroResources.cpp b/src/libretro/LibretroResources.cpp
+index aaf6bd8..4517bf4 100644
+--- a/src/libretro/LibretroResources.cpp
++++ b/src/libretro/LibretroResources.cpp
+@@ -55,9 +55,18 @@ void CLibretroResources::Initialize(CGameLibRetro* addon)
+                          m_addon->ProfileDirectory() + "/" SYSTEM_FILES_RECORD_NAME))
+     m_systemDirectory = copyTo;
+ 
+-  // Set system path to first resource path discovered
+-  if (m_systemDirectory.empty() && !m_resourceDirectories.empty())
+-    m_systemDirectory = m_resourceDirectories.front() + "/" LIBRETRO_SYSTEM_DIRECTORY_NAME;
++  // Otherwise the first resource path's system folder, where the files are if
++  // the copy failed. With none there, the emulator's own folder, as the folder
++  // it's installed in may be read-only.
++  if (m_systemDirectory.empty())
++  {
++    const std::string first =
++        m_resourceDirectories.empty()
++            ? std::string()
++            : m_resourceDirectories.front() + "/" LIBRETRO_SYSTEM_DIRECTORY_NAME;
++    m_systemDirectory =
++        !first.empty() && kodi::vfs::DirectoryExists(first) ? first : ownDirectory;
++  }
+ 
+   // Ensure folder exists
+   if (!m_systemDirectory.empty() && !kodi::vfs::DirectoryExists(m_systemDirectory))
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index bfaefa2..71d646f 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -91,7 +91,7 @@ int main() { KodiToAddonFuncTable_Game functions{}; return functions.RunFrameSpe
+                    crop_overscan core_name core_name_older_kodi hardcore_unnamed_core
+                    audio_core_thread shared_system_directory shared_system_root
+                    shared_system_drive_root vfs_v5 reset_keeps_game_info shared_system_files
+-                   own_system_files ${speculative_scenarios})
++                   own_system_files no_system_files ${speculative_scenarios})
+     add_test(NAME ${scenario}
+              COMMAND test_reload "${GAME_LIBRETRO_LIBRARY}" $<TARGET_FILE:reload_core> ${scenario})
+     set_tests_properties(${scenario} PROPERTIES TIMEOUT 10)
+diff --git a/tests/TestReload.cpp b/tests/TestReload.cpp
+index 006007e..a5957cf 100644
+--- a/tests/TestReload.cpp
++++ b/tests/TestReload.cpp
+@@ -424,7 +424,8 @@ int main(int argc, char** argv)
+   // Real folders: an emulator's resources, its profile and the shared folder
+   const bool testSharedFiles = std::strcmp(scenario, "shared_system_files") == 0;
+   const bool testOwnFiles = std::strcmp(scenario, "own_system_files") == 0;
+-  const bool testSystemFiles = testSharedFiles || testOwnFiles;
++  const bool testNoFiles = std::strcmp(scenario, "no_system_files") == 0;
++  const bool testSystemFiles = testSharedFiles || testOwnFiles || testNoFiles;
+   std::string sharedRoot;
+   if (testSystemFiles)
+   {
+@@ -640,8 +641,11 @@ int main(int argc, char** argv)
+     properties.profile_directory = profile.c_str();
+     ::mkdir(profile.c_str(), 0755);
+     ::mkdir(ownResources.c_str(), 0755);
+-    WriteText(addonResources + "/system/bios.bin", "shipped bios");
+-    WriteText(addonResources + "/system/core/data.txt", "v1");
++    if (!testNoFiles)
++    {
++      WriteText(addonResources + "/system/bios.bin", "shipped bios");
++      WriteText(addonResources + "/system/core/data.txt", "v1");
++    }
+   }
+   if (testSharedFiles)
+   {
+@@ -657,7 +661,7 @@ int main(int argc, char** argv)
+     WriteText(own + "/IPL.bin", "old dump");
+     WriteText(shared + "IPL.bin", "newer dump");
+   }
+-  if (testOwnFiles)
++  if (testOwnFiles || testNoFiles)
+   {
+     // The own folder is empty, so Kodi lists only the folder the emulator is
+     // installed in
+@@ -797,6 +801,17 @@ int main(int argc, char** argv)
+     std::remove(addonSettingsFile.c_str());
+     std::puts("PASS: an emulator's system files are copied into the shared folder");
+   }
++  if (testNoFiles)
++  {
++    struct stat info{};
++    Require(systemDirectory() == own,
++            "an emulator that comes with no system files must be given its own folder");
++    Require(::stat(own.c_str(), &info) == 0 && S_ISDIR(info.st_mode),
++            "the emulator's own folder must be created");
++    Require(::stat((addonResources + "/system").c_str(), &info) != 0,
++            "the folder the emulator is installed in must be left alone");
++    std::puts("PASS: an emulator with no system files is given its own folder");
++  }
+   if (testOwnFiles)
+   {
+     Require(systemDirectory() == own,
+@@ -1663,7 +1678,7 @@ int main(int argc, char** argv)
+   }
+   dlclose(library);
+   dlclose(coreLibrary);
+-  if (testSharedFiles)
++  if (testSharedFiles || testNoFiles)
+     RemoveTree(sharedRoot);
+   if (std::strcmp(scenario, "software") == 0)
+     std::puts("PASS: timing, video, and audio survive six loads on one addon instance");
+-- 
+2.55.0
+
