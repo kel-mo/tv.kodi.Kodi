@@ -1,4 +1,4 @@
-From 0b2ff75f6b1b05db5bcd757a53de074f3596973a Mon Sep 17 00:00:00 2001
+From f0ad349be24f24d1f75cadef0bf378e8f0424ac6 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sun, 15 Nov 2026 08:18:44 +1000
 Subject: [PATCH] Run Vulkan cores on OpenGL ES
@@ -26,7 +26,7 @@ negotiation or interface.
 Assisted-by: Claude
 ---
  .github/workflows/tests.yml           |    3 +-
- CMakeLists.txt                        |   15 +
+ CMakeLists.txt                        |   17 +
  debian/control                        |    3 +-
  src/libretro/ClientBridge.cpp         |    6 +
  src/libretro/FrontendBridge.cpp       |    2 +
@@ -36,7 +36,7 @@ Assisted-by: Claude
  src/video/vulkan/VulkanBridge.cpp     | 1143 +++++++++++++++++++++++++
  src/video/vulkan/VulkanBridge.h       |  132 +++
  tests/TestReload.cpp                  |   11 +
- 11 files changed, 1446 insertions(+), 11 deletions(-)
+ 11 files changed, 1448 insertions(+), 11 deletions(-)
  create mode 100644 src/video/vulkan/IVulkanBridge.h
  create mode 100644 src/video/vulkan/NullVulkanBridge.cpp
  create mode 100644 src/video/vulkan/VulkanBridge.cpp
@@ -57,10 +57,10 @@ index 1f35b2a..bd6ab6f 100644
        - name: Clone paired Kodi
          run: |
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c73f943..508df33 100644
+index c73f943..d4de124 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -151,6 +151,21 @@ set(LIBRETRO_HEADERS src/GameInfoLoader.h
+@@ -151,6 +151,23 @@ set(LIBRETRO_HEADERS src/GameInfoLoader.h
                       src/video/VideoTiming.h
  )
  
@@ -75,8 +75,10 @@ index c73f943..508df33 100644
 +  include_directories(${VULKAN_INCLUDE_DIR} ${EGL_INCLUDE_DIR} ${GLES3_INCLUDE_DIR})
 +  list(APPEND LIBRETRO_SOURCES src/video/vulkan/VulkanBridge.cpp)
 +  list(APPEND LIBRETRO_HEADERS src/video/vulkan/VulkanBridge.h)
++  message(STATUS "Vulkan bridge: enabled")
 +else()
 +  list(APPEND LIBRETRO_SOURCES src/video/vulkan/NullVulkanBridge.cpp)
++  message(STATUS "Vulkan bridge: disabled, needs the Vulkan, EGL and GLES 3 headers on Linux")
 +endif()
 +
  build_addon(${PROJECT_NAME} LIBRETRO DEPLIBS)
