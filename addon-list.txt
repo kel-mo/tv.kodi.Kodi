@@ -43,11 +43,13 @@ game.libretro.beetle-vb
 game.libretro.beetle-wswan
 game.libretro.blastem
 game.libretro.bluemsx
+game.libretro.cap32
 game.libretro.dolphin
 game.libretro.dosbox
 game.libretro.dosbox-pure
 game.libretro.fceumm
 game.libretro.flycast
+game.libretro.fuse
 game.libretro.gambatte
 game.libretro.gearsystem
 game.libretro.gw
@@ -78,6 +80,7 @@ game.libretro.tgbdual
 game.libretro.tyrquake
 game.libretro.uae
 game.libretro.vbam
+game.libretro.vecx
 game.libretro.virtualjaguar
 game.libretro.yabasanshiro
 game.libretro.yabause
