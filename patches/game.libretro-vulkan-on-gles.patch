@@ -1,4 +1,4 @@
-From f0ad349be24f24d1f75cadef0bf378e8f0424ac6 Mon Sep 17 00:00:00 2001
+From 7e12c884d68a9ccf9ed81af38ee2497b29458e48 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sun, 15 Nov 2026 08:18:44 +1000
 Subject: [PATCH] Run Vulkan cores on OpenGL ES
@@ -9,8 +9,10 @@ Vulkan request with a GLES context and a Vulkan device of the bridge's
 own, made by the core when it negotiates one, with version 1 or 2 of the
 negotiation interface. Each frame the core's image is copied into a
 dma-buf image, which GLES imports and blits into the framebuffer, with
-two frames in flight. GLES waits for the copy on the GPU through a
-sync_file where EGL and Vulkan can share one, otherwise the CPU waits.
+two frames in flight. A duplicated frame, or one with nothing to copy,
+still runs the core's command buffers and signals its semaphore. GLES
+waits for the copy on the GPU through a sync_file where EGL and Vulkan
+can share one, otherwise the CPU waits.
 
 The request is only taken on when Kodi draws with GLES through EGL and
 the GPU can share images with it, otherwise it's refused as before.
@@ -29,14 +31,14 @@ Assisted-by: Claude
  CMakeLists.txt                        |   17 +
  debian/control                        |    3 +-
  src/libretro/ClientBridge.cpp         |    6 +
- src/libretro/FrontendBridge.cpp       |    2 +
+ src/libretro/FrontendBridge.cpp       |    3 +
  src/libretro/LibretroEnvironment.cpp  |   40 +-
- src/video/vulkan/IVulkanBridge.h      |   68 ++
- src/video/vulkan/NullVulkanBridge.cpp |   34 +
- src/video/vulkan/VulkanBridge.cpp     | 1143 +++++++++++++++++++++++++
- src/video/vulkan/VulkanBridge.h       |  132 +++
+ src/video/vulkan/IVulkanBridge.h      |   74 ++
+ src/video/vulkan/NullVulkanBridge.cpp |   35 +
+ src/video/vulkan/VulkanBridge.cpp     | 1201 +++++++++++++++++++++++++
+ src/video/vulkan/VulkanBridge.h       |  134 +++
  tests/TestReload.cpp                  |   11 +
- 11 files changed, 1448 insertions(+), 11 deletions(-)
+ 11 files changed, 1516 insertions(+), 11 deletions(-)
  create mode 100644 src/video/vulkan/IVulkanBridge.h
  create mode 100644 src/video/vulkan/NullVulkanBridge.cpp
  create mode 100644 src/video/vulkan/VulkanBridge.cpp
@@ -130,7 +132,7 @@ index 1d08b4a..16a7ebd 100644
  }
  
 diff --git a/src/libretro/FrontendBridge.cpp b/src/libretro/FrontendBridge.cpp
-index 2aeec7d..d9d462f 100644
+index 2aeec7d..ab76969 100644
 --- a/src/libretro/FrontendBridge.cpp
 +++ b/src/libretro/FrontendBridge.cpp
 @@ -6,6 +6,7 @@
@@ -141,7 +143,7 @@ index 2aeec7d..d9d462f 100644
  #include "LibretroEnvironment.h"
  #include "LibretroTranslator.h"
  #include "input/ButtonMapper.h"
-@@ -101,6 +102,7 @@ void CFrontendBridge::VideoRefresh(const void* data, unsigned int width, unsigne
+@@ -101,11 +102,13 @@ void CFrontendBridge::VideoRefresh(const void* data, unsigned int width, unsigne
  
    if (data == RETRO_HW_FRAME_BUFFER_VALID)
    {
@@ -149,6 +151,12 @@ index 2aeec7d..d9d462f 100644
      CLibretroEnvironment::Get().Video().RenderHwFrame(width, height);
    }
    else if (data == nullptr)
+   {
+     // Libretro is sending a frame dupe command
++    VulkanBridge().Dupe();
+     CLibretroEnvironment::Get().Video().DupeFrame();
+   }
+   else
 diff --git a/src/libretro/LibretroEnvironment.cpp b/src/libretro/LibretroEnvironment.cpp
 index d3157f4..b441e55 100644
 --- a/src/libretro/LibretroEnvironment.cpp
@@ -246,10 +254,10 @@ index d3157f4..b441e55 100644
    {
 diff --git a/src/video/vulkan/IVulkanBridge.h b/src/video/vulkan/IVulkanBridge.h
 new file mode 100644
-index 0000000..dc8e8bc
+index 0000000..9cc6c15
 --- /dev/null
 +++ b/src/video/vulkan/IVulkanBridge.h
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,74 @@
 +/*
 + *  Copyright (C) 2026 Team Kodi
 + *  This file is part of Kodi - https://kodi.tv
@@ -311,6 +319,12 @@ index 0000000..dc8e8bc
 +     * \brief Draw the core's image into the framebuffer, if the bridge is running
 +     */
 +    virtual bool Present(unsigned int width, unsigned int height, uintptr_t framebuffer) = 0;
++
++    /*!
++     * \brief On a duplicated frame, run the core's command buffers and signal its
++     *        semaphore without copying anything, if the bridge is running
++     */
++    virtual void Dupe() = 0;
 +  };
 +
 +  /*!
@@ -320,10 +334,10 @@ index 0000000..dc8e8bc
 +} // namespace LIBRETRO
 diff --git a/src/video/vulkan/NullVulkanBridge.cpp b/src/video/vulkan/NullVulkanBridge.cpp
 new file mode 100644
-index 0000000..e468c2b
+index 0000000..2e2f479
 --- /dev/null
 +++ b/src/video/vulkan/NullVulkanBridge.cpp
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,35 @@
 +/*
 + *  Copyright (C) 2026 Team Kodi
 + *  This file is part of Kodi - https://kodi.tv
@@ -350,6 +364,7 @@ index 0000000..e468c2b
 +  void ContextDestroy() override {}
 +  const retro_hw_render_interface* Interface() const override { return nullptr; }
 +  bool Present(unsigned int, unsigned int, uintptr_t) override { return false; }
++  void Dupe() override {}
 +};
 +} // namespace
 +
@@ -360,10 +375,10 @@ index 0000000..e468c2b
 +}
 diff --git a/src/video/vulkan/VulkanBridge.cpp b/src/video/vulkan/VulkanBridge.cpp
 new file mode 100644
-index 0000000..b08701e
+index 0000000..a8d1351
 --- /dev/null
 +++ b/src/video/vulkan/VulkanBridge.cpp
-@@ -0,0 +1,1143 @@
+@@ -0,0 +1,1201 @@
 +/*
 + *  Copyright (C) 2026 Team Kodi
 + *  This file is part of Kodi - https://kodi.tv
@@ -1337,8 +1352,15 @@ index 0000000..b08701e
 +
 +bool CVulkanBridge::Present(unsigned int width, unsigned int height, uintptr_t framebuffer)
 +{
-+  if (!m_created || !m_haveImage || width == 0 || height == 0 || framebuffer == 0)
++  if (!m_created)
 +    return false;
++
++  // nothing to copy, but the core's work and semaphore still go out
++  if (!m_haveImage || width == 0 || height == 0 || framebuffer == 0)
++  {
++    SubmitCoreWork();
++    return false;
++  }
 +
 +  VulkanFunctions& vk = *m_vk;
 +  Frame& frame = m_frames[m_index];
@@ -1350,6 +1372,7 @@ index 0000000..b08701e
 +    if (!CreateExportImage(frame, width, height))
 +    {
 +      DestroyExportImage(frame);
++      SubmitCoreWork();
 +      return false;
 +    }
 +  }
@@ -1361,17 +1384,20 @@ index 0000000..b08701e
 +                                       ? VK_IMAGE_LAYOUT_GENERAL
 +                                       : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 +
-+  // the core's image may belong to another queue family
++  // the core's image may belong to another queue family; ownership moves in its own
++  // layout, matching the core's release, and our layout change is a separate barrier
 +  const bool transfer =
 +      m_srcQueueFamily != VK_QUEUE_FAMILY_IGNORED && m_srcQueueFamily != m_queueFamily;
-+  const uint32_t coreQueue = transfer ? m_srcQueueFamily : VK_QUEUE_FAMILY_IGNORED;
-+  const uint32_t ourQueue = transfer ? m_queueFamily : VK_QUEUE_FAMILY_IGNORED;
 +
 +  VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 +  begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 +  vk.BeginCommandBuffer(frame.cmd, &begin);
-+  Barrier(vk.CmdPipelineBarrier, frame.cmd, coreImage, coreLayout, readLayout,
-+          VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT, coreQueue, ourQueue);
++  if (transfer)
++    Barrier(vk.CmdPipelineBarrier, frame.cmd, coreImage, coreLayout, coreLayout, 0,
++            VK_ACCESS_TRANSFER_READ_BIT, m_srcQueueFamily, m_queueFamily);
++  if (!transfer || readLayout != coreLayout)
++    Barrier(vk.CmdPipelineBarrier, frame.cmd, coreImage, coreLayout, readLayout,
++            VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
 +  Barrier(vk.CmdPipelineBarrier, frame.cmd, frame.image, VK_IMAGE_LAYOUT_UNDEFINED,
 +          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
 +          VK_QUEUE_FAMILY_FOREIGN_EXT, m_queueFamily);
@@ -1385,14 +1411,21 @@ index 0000000..b08701e
 +  Barrier(vk.CmdPipelineBarrier, frame.cmd, frame.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 +          VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_TRANSFER_WRITE_BIT, 0, m_queueFamily,
 +          VK_QUEUE_FAMILY_FOREIGN_EXT);
-+  Barrier(vk.CmdPipelineBarrier, frame.cmd, coreImage, readLayout, coreLayout,
-+          VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT, ourQueue, coreQueue);
++  if (!transfer || readLayout != coreLayout)
++    Barrier(vk.CmdPipelineBarrier, frame.cmd, coreImage, readLayout, coreLayout,
++            VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT);
++  if (transfer)
++    Barrier(vk.CmdPipelineBarrier, frame.cmd, coreImage, coreLayout, coreLayout,
++            VK_ACCESS_TRANSFER_READ_BIT, 0, m_queueFamily, m_srcQueueFamily);
 +  vk.EndCommandBuffer(frame.cmd);
 +
++  // set_image's semaphores are ignored when the core hands over command buffers
++  std::vector<VkSemaphore> wait;
++  if (m_coreCommands.empty())
++    wait = m_waitSemaphores;
 +  std::vector<VkCommandBuffer> commands = m_coreCommands;
 +  commands.push_back(frame.cmd);
-+  std::vector<VkPipelineStageFlags> waitStages(m_waitSemaphores.size(),
-+                                               VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
++  std::vector<VkPipelineStageFlags> waitStages(wait.size(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 +  std::vector<VkSemaphore> signal;
 +  if (m_signalSemaphore)
 +    signal.push_back(m_signalSemaphore);
@@ -1400,8 +1433,8 @@ index 0000000..b08701e
 +    signal.push_back(frame.copied);
 +
 +  VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-+  submit.waitSemaphoreCount = static_cast<uint32_t>(m_waitSemaphores.size());
-+  submit.pWaitSemaphores = m_waitSemaphores.data();
++  submit.waitSemaphoreCount = static_cast<uint32_t>(wait.size());
++  submit.pWaitSemaphores = wait.data();
 +  submit.pWaitDstStageMask = waitStages.data();
 +  submit.commandBufferCount = static_cast<uint32_t>(commands.size());
 +  submit.pCommandBuffers = commands.data();
@@ -1444,6 +1477,46 @@ index 0000000..b08701e
 +  std::unique_lock<std::mutex> lock(m_frameMutex);
 +  m_index = (m_index + 1) % FRAMES;
 +  return true;
++}
++
++void CVulkanBridge::Dupe()
++{
++  if (m_created)
++    SubmitCoreWork();
++}
++
++// Without a copy, e.g. on a dupe: no semaphore is waited on, but the core's command
++// buffers still run once and its semaphore is still signalled; the frame's fence
++// covers them for wait_sync_index
++void CVulkanBridge::SubmitCoreWork()
++{
++  if (!m_coreCommands.empty() || m_signalSemaphore)
++  {
++    Frame& frame = m_frames[m_index];
++    WaitFrame(frame);
++
++    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
++    submit.commandBufferCount = static_cast<uint32_t>(m_coreCommands.size());
++    submit.pCommandBuffers = m_coreCommands.data();
++    submit.signalSemaphoreCount = m_signalSemaphore ? 1 : 0;
++    submit.pSignalSemaphores = &m_signalSemaphore;
++
++    VkResult result;
++    {
++      std::unique_lock<std::mutex> lock(m_queueMutex);
++      result = m_vk->QueueSubmit(m_queue, 1, &submit, frame.fence);
++    }
++    if (result == VK_SUCCESS)
++    {
++      std::unique_lock<std::mutex> lock(m_frameMutex);
++      frame.submitted = true;
++    }
++    else
++      kodi::Log(ADDON_LOG_ERROR, "Vulkan bridge: vkQueueSubmit failed: %d", result);
++  }
++  m_coreCommands.clear();
++  m_waitSemaphores.clear();
++  m_signalSemaphore = VK_NULL_HANDLE;
 +}
 +
 +void CVulkanBridge::SetImage(void* handle,
@@ -1509,10 +1582,10 @@ index 0000000..b08701e
 +}
 diff --git a/src/video/vulkan/VulkanBridge.h b/src/video/vulkan/VulkanBridge.h
 new file mode 100644
-index 0000000..fb26bc6
+index 0000000..72f2940
 --- /dev/null
 +++ b/src/video/vulkan/VulkanBridge.h
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,134 @@
 +/*
 + *  Copyright (C) 2026 Team Kodi
 + *  This file is part of Kodi - https://kodi.tv
@@ -1554,6 +1627,7 @@ index 0000000..fb26bc6
 +    const retro_hw_render_interface* Interface() const override;
 +
 +    bool Present(unsigned int width, unsigned int height, uintptr_t framebuffer) override;
++    void Dupe() override;
 +
 +  private:
 +    struct VulkanFunctions;
@@ -1591,6 +1665,7 @@ index 0000000..fb26bc6
 +    bool CreateExportImage(Frame& frame, unsigned int width, unsigned int height);
 +    void DestroyExportImage(Frame& frame);
 +    void WaitFrame(Frame& frame);
++    void SubmitCoreWork();
 +    bool WaitOnGpu(Frame& frame);
 +
 +    static VkInstance CreateInstanceWrapper(void* opaque, const VkInstanceCreateInfo* createInfo);

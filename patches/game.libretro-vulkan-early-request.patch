@@ -1,4 +1,4 @@
-From 31ab91822cd634a416678083210916d2d9f00551 Mon Sep 17 00:00:00 2001
+From 4d9415aeda085ac125fa54c21816e0353fa2d3d3 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Sun, 15 Nov 2026 08:18:44 +1000
 Subject: [PATCH] Make a Vulkan context asked for in retro_init() at load
