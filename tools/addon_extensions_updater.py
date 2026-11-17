@@ -22,7 +22,7 @@ EXTRA_EXTENSIONS = """\
 """
 EXTRA_CLEANUP = ["  - mkdir -p ${FLATPAK_DEST}/share/kodi/extra\n"]
 
-# not auto-downloaded: embedded system ROMs, non-commercial licences
+# not auto-downloaded: embedded system ROMs, non-commercial licences, scummvm's size
 OPT_IN = (
     "game.libretro.81",
     "game.libretro.cap32",
@@ -32,6 +32,7 @@ OPT_IN = (
     "game.libretro.mame2003_plus",
     "game.libretro.mame2010",
     "game.libretro.picodrive",
+    "game.libretro.scummvm",
     "game.libretro.vecx",
 )
 
