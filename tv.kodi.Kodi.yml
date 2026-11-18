@@ -848,6 +848,8 @@ modules:
         path: patches/kodi-videoplayer-multisource-abort.patch
       - type: patch
         path: patches/kodi-gbm-game-present-now.patch
+      - type: patch
+        path: patches/kodi-gbm-game-content-type.patch
       - type: file
         path: addon-list.txt
         dest: build/download/

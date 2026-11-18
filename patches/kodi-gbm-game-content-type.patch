@@ -1,0 +1,79 @@
+From 91d5e1a00ccb60f574dd638014ec074fff7a509d Mon Sep 17 00:00:00 2001
+From: Chris <meischris39@hotmail.com>
+Date: Sun, 4 Oct 2026 00:05:13 +0100
+Subject: [PATCH] [gbm] Tell the display when a game is on screen
+
+While a game is full screen, set the connector's HDMI content type to
+Game, and back to No Data afterwards. A display that honours it can
+switch to its own game mode, which skips the picture processing that
+delays what it shows.
+---
+ xbmc/windowing/gbm/WinSystemGbm.cpp | 27 +++++++++++++++++++++++++++
+ xbmc/windowing/gbm/WinSystemGbm.h   |  3 +++
+ 2 files changed, 30 insertions(+)
+
+diff --git a/xbmc/windowing/gbm/WinSystemGbm.cpp b/xbmc/windowing/gbm/WinSystemGbm.cpp
+index 644fd4b30b..7f7b4e36e3 100644
+--- a/xbmc/windowing/gbm/WinSystemGbm.cpp
++++ b/xbmc/windowing/gbm/WinSystemGbm.cpp
+@@ -319,6 +319,8 @@ void CWinSystemGbm::FlipPage(bool rendered, bool videoLayer, bool async)
+     bo = m_GBM->GetDevice().GetSurface().LockFrontBuffer().Get();
+   }
+ 
++  UpdateContentType();
++
+   m_DRM->FlipPage(bo, rendered, videoLayer, async);
+ 
+   // !videoLayer alone cannot gate teardown: FlipPage also runs with videoLayer
+@@ -497,6 +499,31 @@ void CWinSystemGbm::SetColorimetry(const VideoPicture* videoPicture)
+   }
+ }
+ 
++void CWinSystemGbm::UpdateContentType()
++{
++  const bool game = m_lowLatencyPresentation;
++  if (game == m_gameContentType)
++    return;
++
++  m_gameContentType = game;
++
++  auto drm = std::dynamic_pointer_cast<CDRMAtomic>(m_DRM);
++  CDRMConnector* connector = m_DRM->GetConnector();
++  if (!drm || !connector)
++    return;
++
++  // A display that is told a game is on screen can switch to its own game
++  // mode, which drops the picture processing that delays what it shows
++  const char* name = game ? "Game" : "No Data";
++  std::optional<uint64_t> contentType = connector->GetPropertyEnumValue("content type", name);
++  if (!contentType)
++    return;
++
++  CLog::LogF(LOGDEBUG, "setting connector content type to {}", name);
++  drm->AddProperty(connector, "content type", contentType.value());
++  drm->SetActive(true);
++}
++
+ bool CWinSystemGbm::SetHDR(const VideoPicture* videoPicture)
+ {
+   auto settingsComponent = CServiceBroker::GetSettingsComponent();
+diff --git a/xbmc/windowing/gbm/WinSystemGbm.h b/xbmc/windowing/gbm/WinSystemGbm.h
+index 2105a76716..de4e55fd08 100644
+--- a/xbmc/windowing/gbm/WinSystemGbm.h
++++ b/xbmc/windowing/gbm/WinSystemGbm.h
+@@ -100,9 +100,12 @@ protected:
+   std::unique_ptr<CLibInputHandler> m_libinput;
+ 
+ private:
++  void UpdateContentType();
++
+   CDRMPropertyBlob m_hdrBlob;
+   KODI::UTILS::Eotf m_eotf = KODI::UTILS::Eotf::TRADITIONAL_SDR;
+   KODI::UTILS::Colorimetry m_colorimetry = KODI::UTILS::Colorimetry::DEFAULT;
++  bool m_gameContentType = false;
+ 
+   std::unique_ptr<UTILS::CDisplayInfo> m_info;
+ };
+-- 
+2.55.0
+
