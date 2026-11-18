@@ -844,6 +844,8 @@ modules:
         path: patches/kodi-plugin-stop-on-quit.patch
       - type: patch
         path: patches/kodi-videoplayer-probe-abort.patch
+      - type: patch
+        path: patches/kodi-videoplayer-multisource-abort.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
