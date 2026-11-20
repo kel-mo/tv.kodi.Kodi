@@ -923,6 +923,7 @@ modules:
   - addons/game.libretro.blastem/game.libretro.blastem.json
   - addons/game.libretro.bluemsx/game.libretro.bluemsx.json
   - addons/game.libretro.cap32/game.libretro.cap32.json
+  - addons/game.libretro.cemu/game.libretro.cemu.json
   - addons/game.libretro.dolphin/game.libretro.dolphin.json
   - addons/game.libretro.dosbox/game.libretro.dosbox.json
   - addons/game.libretro.dosbox-pure/game.libretro.dosbox-pure.json

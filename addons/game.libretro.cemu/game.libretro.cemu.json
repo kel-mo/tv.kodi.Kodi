@@ -1,0 +1,181 @@
+{
+    "name": "game.libretro.cemu",
+    "buildsystem": "cmake-ninja",
+    "only-arches": [
+        "x86_64"
+    ],
+    "build-options": {
+        "no-debuginfo": true,
+        "cflags": "-g0",
+        "cxxflags": "-g0"
+    },
+    "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DPACKAGE_ZIP=ON",
+        "-DCMAKE_INSTALL_PREFIX=/app/lib/kodi/addons",
+        "-DCMAKE_PREFIX_PATH=/app"
+    ],
+    "sources": [
+        {
+            "type": "git",
+            "url": "https://github.com/kodi-game/game.libretro.cemu",
+            "commit": "4e945ce99d17a060d7faba2f3738695f6bfb94a4"
+        }
+    ],
+    "modules": [
+        {
+            "name": "boost",
+            "buildsystem": "simple",
+            "build-options": {
+                "no-debuginfo": true
+            },
+            "build-commands": [
+                "./bootstrap.sh --prefix=/app --with-libraries=filesystem,nowide,program_options",
+                "./b2 -j $FLATPAK_BUILDER_N_JOBS install link=static variant=release threading=multi cxxflags=-fPIC cflags=-fPIC"
+            ],
+            "cleanup": [
+                "/include/boost",
+                "/lib/libboost_*",
+                "/lib/cmake/boost_*",
+                "/lib/cmake/Boost-*",
+                "/lib/cmake/BoostDetectToolset-*"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2",
+                    "sha256": "5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c"
+                }
+            ]
+        },
+        {
+            "name": "rapidjson",
+            "buildsystem": "cmake-ninja",
+            "config-opts": [
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+                "-DRAPIDJSON_BUILD_DOC=OFF",
+                "-DRAPIDJSON_BUILD_EXAMPLES=OFF",
+                "-DRAPIDJSON_BUILD_TESTS=OFF"
+            ],
+            "cleanup": [
+                "/include/rapidjson",
+                "/lib/cmake/RapidJSON",
+                "/lib/pkgconfig/RapidJSON.pc",
+                "/share/doc/RapidJSON"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/Tencent/rapidjson/archive/73063f5002612c6bf64fe24f851cd5cc0d83eef9.tar.gz",
+                    "sha256": "896eb817fb2bc62a0a84ca65fac3e3c385b410e6dbf70d69c411e25776663e39"
+                }
+            ]
+        },
+        {
+            "name": "libzip",
+            "buildsystem": "cmake-ninja",
+            "build-options": {
+                "no-debuginfo": true
+            },
+            "config-opts": [
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DBUILD_SHARED_LIBS=OFF",
+                "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                "-DCMAKE_INSTALL_LIBDIR=lib",
+                "-DBUILD_TOOLS=OFF",
+                "-DBUILD_REGRESS=OFF",
+                "-DBUILD_OSSFUZZ=OFF",
+                "-DBUILD_EXAMPLES=OFF",
+                "-DBUILD_DOC=OFF",
+                "-DENABLE_GNUTLS=OFF",
+                "-DENABLE_MBEDTLS=OFF",
+                "-DENABLE_BZIP2=OFF",
+                "-DENABLE_LZMA=OFF",
+                "-DENABLE_ZSTD=OFF"
+            ],
+            "cleanup": [
+                "/include/zip.h",
+                "/include/zipconf.h",
+                "/lib/libzip.a",
+                "/lib/cmake/libzip",
+                "/lib/pkgconfig/libzip.pc"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://github.com/nih-at/libzip/releases/download/v1.12.1/libzip-1.12.1.tar.xz",
+                    "sha256": "c40062022a1963c80573d48f6070792297cecd7c6bffe3aefcac0d8b9bee8913"
+                }
+            ]
+        },
+        {
+            "name": "libretro-cemu",
+            "buildsystem": "cmake-ninja",
+            "builddir": true,
+            "build-options": {
+                "no-debuginfo": true,
+                "cflags": "-g0",
+                "cxxflags": "-g0"
+            },
+            "config-opts": [
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+                "-DCMAKE_PREFIX_PATH=/app",
+                "-DENABLE_VCPKG=OFF",
+                "-DENABLE_WAYLAND=OFF",
+                "-DENABLE_LIBUSB=OFF",
+                "-DENABLE_CUBEB=OFF",
+                "-DENABLE_DISCORD_RPC=OFF",
+                "-DENABLE_BLUEZ=OFF",
+                "-DENABLE_FERAL_GAMEMODE=OFF",
+                "-DENABLE_WXWIDGETS=OFF",
+                "-DBoost_USE_STATIC_LIBS=ON",
+                "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+                "-Wno-dev"
+            ],
+            "make-args": [
+                "cemu_libretro"
+            ],
+            "no-make-install": true,
+            "post-install": [
+                "install -Dm755 ../bin/cemu_libretro.so /app/lib/libretro/cemu_libretro.so",
+                "strip /app/lib/libretro/cemu_libretro.so"
+            ],
+            "cleanup": [
+                "/lib/libretro"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://github.com/WizzardSK/cemu-libretro",
+                    "commit": "a13d91b5dd8640e87f7659c0ec813c778e8fad3f",
+                    "disable-submodules": true
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/WizzardSK/ZArchive",
+                    "commit": "917a36291eadc5849309cb5524e2abe1c959f2b4",
+                    "dest": "dependencies/ZArchive"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/KhronosGroup/Vulkan-Headers",
+                    "commit": "01393c3df0e5285b54ee6527466513f9e614be94",
+                    "dest": "dependencies/Vulkan-Headers"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/ocornut/imgui",
+                    "commit": "f65bcf481ab34cd07d3909aab1479f409fa79f2f",
+                    "dest": "dependencies/imgui"
+                },
+                {
+                    "type": "git",
+                    "url": "https://github.com/cemu-project/cemu_graphic_packs.git",
+                    "commit": "3a2f017cff9cebdf299251e07ab72dcb9c7d6bb1",
+                    "dest": "dependencies/cemu_graphic_packs"
+                }
+            ]
+        }
+    ]
+}
