@@ -5,7 +5,7 @@
         {
             "type": "git",
             "url": "https://github.com/xbmc/audiodecoder.timidity",
-            "commit": "115903085b71ed63c3aa151f57216795b8482de0"
+            "commit": "b54619c9f6fde1903242c7139ea28605b8a81938"
         },
         {
             "type": "file",

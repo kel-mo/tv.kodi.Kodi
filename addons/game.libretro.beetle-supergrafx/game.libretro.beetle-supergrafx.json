@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.beetle-supergrafx",
-            "commit": "ec31770378b45a3b304ce5c94d4b100d98bfcf74"
+            "commit": "684adf1b6d31fd8648be5bf363748ee655770788"
         },
         {
             "type": "file",

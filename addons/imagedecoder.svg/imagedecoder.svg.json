@@ -5,11 +5,7 @@
         {
             "type": "git",
             "url": "https://github.com/xbmc/imagedecoder.svg",
-            "commit": "47e9f3c84228b391c6d2bdb0913ee46183bfb0ab"
-        },
-        {
-            "type": "patch",
-            "path": "imagedecoder.svg-001-bound-is-a-ceiling.patch"
+            "commit": "c96dc3089056926d5db032cd14f889cdfd82dc60"
         },
         {
             "type": "file",

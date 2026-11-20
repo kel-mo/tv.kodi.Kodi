@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.gearsystem",
-            "commit": "29ca8f72277d2ba7291d8b5c38145be84cd31e32"
+            "commit": "dfa3a885b052eda11ee0979b8791295a5597efce"
         },
         {
             "type": "file",
@@ -42,20 +42,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://github.com/drhelius/Gearsystem/archive/27663b47d04a879eff61f94e2b45e448d43fdb02.tar.gz",
-                    "sha256": "eabf9eb915cf6795dc30129df3cecccc3039abf2bd1fea052e8e4be89b1d28ca"
-                },
-                {
-                    "type": "file",
-                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.gearsystem/29ca8f72277d2ba7291d8b5c38145be84cd31e32/depends/common/gearsystem/0001-Explicitly-set-version-variable.patch",
-                    "sha256": "2fa9fcd856eb8ad8f370cf6bc4905a9a581a34a36a1b56e8270cf8c2d2effb71",
-                    "dest-filename": "0001-Explicitly-set-version-variable.patch"
-                },
-                {
-                    "type": "shell",
-                    "commands": [
-                        "patch -p1 < 0001-Explicitly-set-version-variable.patch"
-                    ]
+                    "url": "https://github.com/drhelius/Gearsystem/archive/4b3b1b266e536848ab23b8733f783ae17f0126a6.tar.gz",
+                    "sha256": "e810cc8b314d749f41329a2fa83242c6c3011dfc8a987b32f9f4d9b076720f21"
                 }
             ]
         }

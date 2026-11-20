@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.ppsspp",
-            "commit": "53920259a836bc7282cc554c8efac8b11f8406d6"
+            "commit": "14b5532e1ffb52070fd0685ee8fecff9f092d8ac"
         },
         {
             "type": "file",
@@ -61,8 +61,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://github.com/hrydgard/ppsspp/archive/1a7c92107ddd49bb61edd7c36d7232fa98d227ec.tar.gz",
-                    "sha256": "e2b28e7ada3947da4410aa80ec8ddd34039c78bf7b8e9394429d1b89fcee639a"
+                    "url": "https://github.com/hrydgard/ppsspp/archive/9416bbcab0d7a3a9ce3674f250c2b31f72b4ebfa.tar.gz",
+                    "sha256": "09a1c7b7dd9887a76719df12fa880ef8c4e5b8d7a37959c7bd98c4ea4425ff73"
                 },
                 {
                     "type": "archive",
@@ -135,10 +135,6 @@
                     "url": "https://github.com/Tencent/rapidjson/archive/73063f5002612c6bf64fe24f851cd5cc0d83eef9.tar.gz",
                     "sha256": "896eb817fb2bc62a0a84ca65fac3e3c385b410e6dbf70d69c411e25776663e39",
                     "dest": "ext/rapidjson"
-                },
-                {
-                    "type": "patch",
-                    "path": "../../patches/libretro-ppsspp-remove-log-callback.patch"
                 }
             ]
         }

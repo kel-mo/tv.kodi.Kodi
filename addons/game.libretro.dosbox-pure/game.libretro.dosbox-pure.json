@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.dosbox-pure",
-            "commit": "614345c09067441e273d3891220998d17158ad23"
+            "commit": "9f87a0debe7328fe3c2229ec69f2199951bf338e"
         },
         {
             "type": "file",
@@ -47,13 +47,13 @@
                 },
                 {
                     "type": "file",
-                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.dosbox-pure/614345c09067441e273d3891220998d17158ad23/depends/common/dosbox-pure/0001-Shut-down-the-core-on-explicit-top-shell-EXIT.patch",
+                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.dosbox-pure/9f87a0debe7328fe3c2229ec69f2199951bf338e/depends/common/dosbox-pure/0001-Shut-down-the-core-on-explicit-top-shell-EXIT.patch",
                     "sha256": "fbcb3ed7d0e3972d8ba236da15ad0a2e06f38f1810ca79f5da229a56578410bd",
                     "dest-filename": "0001-Shut-down-the-core-on-explicit-top-shell-EXIT.patch"
                 },
                 {
                     "type": "file",
-                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.dosbox-pure/614345c09067441e273d3891220998d17158ad23/depends/common/dosbox-pure/0003-Fix-core-reload-buffers-and-empty-disc-restoration.patch",
+                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.dosbox-pure/9f87a0debe7328fe3c2229ec69f2199951bf338e/depends/common/dosbox-pure/0003-Fix-core-reload-buffers-and-empty-disc-restoration.patch",
                     "sha256": "ed39323c6e96fd588cb473ed7e4db6220cada66953b9fdf3a9fd0a15189a0bc1",
                     "dest-filename": "0003-Fix-core-reload-buffers-and-empty-disc-restoration.patch"
                 },

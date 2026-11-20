@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.sameboy",
-            "commit": "ff8197cd5bfc7d4a099aa423c1baabfabc250e51"
+            "commit": "7ace7c6032293ded715af2257358cdb7626217af"
         },
         {
             "type": "file",

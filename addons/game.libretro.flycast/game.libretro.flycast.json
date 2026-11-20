@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.flycast",
-            "commit": "562cdab2e8fa12981a573dfcd76db65e499894bb"
+            "commit": "e71b89f3f7bcf9425512a1882fe92630f170e07a"
         },
         {
             "type": "file",
@@ -54,7 +54,7 @@
                 },
                 {
                     "type": "file",
-                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.flycast/562cdab2e8fa12981a573dfcd76db65e499894bb/depends/common/flycast/0001-Set-version-to-0.1.0.patch",
+                    "url": "https://raw.githubusercontent.com/kodi-game/game.libretro.flycast/e71b89f3f7bcf9425512a1882fe92630f170e07a/depends/common/flycast/0001-Set-version-to-0.1.0.patch",
                     "sha256": "2f19afadbe641e84d4da59ee32ad92b707ab12b22cda90b07da15786e2ff8ed7",
                     "dest-filename": "0001-Set-version-to-0.1.0.patch"
                 },

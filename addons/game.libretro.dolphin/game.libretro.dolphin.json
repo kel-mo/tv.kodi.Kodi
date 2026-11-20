@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.dolphin",
-            "commit": "60e596fef3c25b7d76ca71db24c166669441ddc4"
+            "commit": "85a1ff277b5b64b3d5b2d8d1ef32da3346ed8612"
         },
         {
             "type": "file",

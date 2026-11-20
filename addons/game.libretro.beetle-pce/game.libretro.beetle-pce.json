@@ -16,7 +16,7 @@
         {
             "type": "git",
             "url": "https://github.com/kodi-game/game.libretro.beetle-pce",
-            "commit": "9fbba118aa7c6531092da54bfa6f7893a280e9ba"
+            "commit": "987994f5e88762b77c6c9261d5ed8a81c03f91e3"
         },
         {
             "type": "file",
@@ -42,8 +42,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://github.com/libretro/beetle-pce-libretro/archive/b96c11e095b6a40a412d2da02766ae1c3f4fd539.tar.gz",
-                    "sha256": "dafa9d71ba2c6cc81c67145d7ac31d8ee32dd6fe8e9448335ae1bcb30b4a1205"
+                    "url": "https://github.com/libretro/beetle-pce-libretro/archive/0c9db4d5d65d661100354442ff426585eaff4987.tar.gz",
+                    "sha256": "5b75b2350a5a6d0184ada25b7c90fa02c0613881bb64cf9606d6a395d6ae63f5"
                 }
             ]
         }
