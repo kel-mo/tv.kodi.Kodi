@@ -15,8 +15,8 @@
     "sources": [
         {
             "type": "git",
-            "url": "https://github.com/kel-mo/game.libretro.rpcs3",
-            "commit": "756e203ad6e2c8b89834764a023fa5db23eac6bd"
+            "url": "https://github.com/kodi-game/game.libretro.rpcs3",
+            "commit": "9d8d5ecbb226963649d9bd800d4026b48dd3124e"
         },
         {
             "type": "file",
@@ -116,8 +116,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://github.com/WizzardSK/rpcs3-libretro/archive/74b3fa37beb294418230b1f039bab4de97f18479.tar.gz",
-                    "sha256": "993ae42512bd45765a9cf2835c49628b1aaec56f3d16fc0a60d204fc800164f3"
+                    "url": "https://github.com/WizzardSK/rpcs3-libretro/archive/36f199ca37b4c7d468a33d7379599cd85870fbfb.tar.gz",
+                    "sha256": "4c264418418dc524bea64267be82a24d566054ac71f020bed598ae0803fe6331"
                 },
                 {
                     "type": "archive",
