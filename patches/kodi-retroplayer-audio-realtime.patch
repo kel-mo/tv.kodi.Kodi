@@ -1,4 +1,4 @@
-From ee0cbd7a3703089305b112285b3af6a69ed4c8ff Mon Sep 17 00:00:00 2001
+From 5acd461993826ed3fc1c08a4fe0964e387c33d29 Mon Sep 17 00:00:00 2001
 From: Kel Modderman <kelvmod@gmail.com>
 Date: Tue, 10 Nov 2026 15:47:12 +1000
 Subject: [PATCH] [AudioEngine] ActiveAE: Put a period of silence ahead of a
@@ -28,10 +28,10 @@ Assisted-by: Claude
  7 files changed, 53 insertions(+), 4 deletions(-)
 
 diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp
-index 52d03d244c..c62914f2f2 100644
+index 4d6cc0264a..4d1ec822ee 100644
 --- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp
 +++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAE.cpp
-@@ -1579,6 +1579,9 @@ CActiveAEStream* CActiveAE::CreateStream(MsgStreamNew *streamMsg)
+@@ -1588,6 +1588,9 @@ CActiveAEStream* CActiveAE::CreateStream(MsgStreamNew *streamMsg)
    if (streamMsg->options & AESTREAM_FORCE_RESAMPLE)
      stream->m_forceResampler = true;
  
@@ -41,7 +41,7 @@ index 52d03d244c..c62914f2f2 100644
    stream->m_pClock = streamMsg->clock;
  
    m_streams.push_back(stream);
-@@ -1651,6 +1654,9 @@ void CActiveAE::SFlushStream(CActiveAEStream *stream)
+@@ -1660,6 +1663,9 @@ void CActiveAE::SFlushStream(CActiveAEStream *stream)
    if (m_streams.size() == 1)
    {
      FlushEngine(true);
@@ -51,7 +51,7 @@ index 52d03d244c..c62914f2f2 100644
    }
  
    m_stats.UpdateStream(stream);
-@@ -2185,6 +2191,7 @@ bool CActiveAE::RunStages()
+@@ -2194,6 +2200,7 @@ bool CActiveAE::RunStages()
      if (m_mode != MODE_RAW)
      {
        CSampleBuffer *out = NULL;
@@ -59,7 +59,7 @@ index 52d03d244c..c62914f2f2 100644
        if (!m_sounds_playing.empty() && m_streams.empty())
        {
          if (m_silenceBuffers && !m_silenceBuffers->m_freeSamples.empty())
-@@ -2223,6 +2230,21 @@ bool CActiveAE::RunStages()
+@@ -2232,6 +2239,21 @@ bool CActiveAE::RunStages()
          {
            CSampleBuffer *tmp = SyncStream(*it);
            m_stats.UpdateStream(*it);
@@ -81,7 +81,7 @@ index 52d03d244c..c62914f2f2 100644
            if (tmp)
            {
              if (!out)
-@@ -2490,6 +2512,8 @@ bool CActiveAE::RunStages()
+@@ -2499,6 +2521,8 @@ bool CActiveAE::RunStages()
          int samples = (m_mode == MODE_TRANSCODE) ? 1 : out->pkt->nb_samples;
          m_stats.AddSamples(samples, m_streams);
          m_sinkBuffers->m_inputSamples.push_back(out);
@@ -121,7 +121,7 @@ index 38b3b54524..5f8f37303c 100644
    struct StreamStats
    {
 diff --git a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
-index 2b713dcf80..98997927a5 100644
+index 284534f926..39fe64062b 100644
 --- a/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
 +++ b/xbmc/cores/AudioEngine/Engines/ActiveAE/ActiveAESink.cpp
 @@ -263,6 +263,9 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
@@ -139,7 +139,7 @@ index 2b713dcf80..98997927a5 100644
          case CSinkControlProtocol::FLUSH:
            ReturnBuffers();
 +          m_extPadding = false;
-           // Pause also clears AE queues: only explicit stream flush discards device audio.
+           // Only discards device audio when asked to, as on a stream flush or pause.
            if (m_sink && *reinterpret_cast<const bool*>(msg->data))
              m_sink->Flush();
 @@ -325,6 +329,8 @@ void CActiveAESink::StateMachine(int signal, Protocol *port, Message *msg)
@@ -243,3 +243,6 @@ index db53f6e51f..e1fa43e3af 100644
    m_resampleRatio = 1.0;
    m_settledSecs = 0.0;
    m_maxDelay = 0.0;
+-- 
+2.55.0
+

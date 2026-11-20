@@ -789,7 +789,7 @@ modules:
     sources:
       - type: git
         url: https://github.com/xbmc/xbmc.git
-        commit: d686683a55d50e576dd282f53fb2bf9914931b38
+        commit: 32a392b5831839e99dadfc0c67fd62bdfdce981b
         x-checker-data:
           type: git
           tag-pattern: ^(\d+\.\d+(?:\w+)?(?:-\w+)?)$
@@ -802,26 +802,10 @@ modules:
       - type: patch
         path: patches/kodi-gui-mipmap-textures.patch
       - type: patch
-        path: patches/kodi-videoplayer-revert-empty-packet-sleep.patch
-      - type: patch
-        path: patches/kodi-videoplayer-mark-dropped-input.patch
-      - type: patch
-        path: patches/kodi-videoplayer-empty-packet-backoff.patch
-      - type: patch
-        path: patches/kodi-videoplayer-retry-addon-empty-packet.patch
-      - type: patch
-        path: patches/kodi-python-set-async-exc.patch
-      - type: patch
-        path: patches/kodi-script-stop-timeout.patch
-      - type: patch
-        path: patches/kodi-script-abort-notify.patch
-      - type: patch
         path: patches/kodi-ffmpegimage-icc.patch
         use-git: true
       - type: patch
         path: patches/kodi-videoplayer-drmprime-v4l2m2m-first.patch
-      - type: patch
-        path: patches/kodi-videoplayer-stop-open-deadlock.patch
       - type: patch
         path: patches/kodi-retroplayer-audio-realtime.patch
       - type: patch
@@ -831,13 +815,7 @@ modules:
       - type: patch
         path: patches/kodi-script-abort-after-onquit.patch
       - type: patch
-        path: patches/kodi-retroplayer-osd-post.patch
-      - type: patch
         path: patches/kodi-vaapi-keep-decoder.patch
-      - type: patch
-        path: patches/kodi-videoplayer-paused-eof-wait.patch
-      - type: patch
-        path: patches/kodi-videots-plugin-dynpath.patch
       - type: patch
         path: patches/kodi-monitor-abort-late.patch
       - type: patch
@@ -846,10 +824,6 @@ modules:
         path: patches/kodi-videoplayer-probe-abort.patch
       - type: patch
         path: patches/kodi-videoplayer-multisource-abort.patch
-      - type: patch
-        path: patches/kodi-gbm-game-present-now.patch
-      - type: patch
-        path: patches/kodi-gbm-game-content-type.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
