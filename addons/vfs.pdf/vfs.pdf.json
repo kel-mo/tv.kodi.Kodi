@@ -5,7 +5,7 @@
         {
             "type": "git",
             "url": "https://github.com/xbmc/vfs.pdf",
-            "commit": "26988f7c87378e6b83b36e670bd629fc980bb1f5"
+            "commit": "9ee40dcdc7fb3ecdea4fd82afa061a1448d4ab0f"
         },
         {
             "type": "file",
@@ -32,7 +32,12 @@
                 "-DENABLE_GPGME=OFF",
                 "-DENABLE_LIBCURL=OFF",
                 "-DENABLE_LIBTIFF=OFF",
-                "-DENABLE_LIBOPENJPEG=openjpeg2",
+                "-DENABLE_LIBOPENJPEG=ON",
+                "-DENABLE_LIBJPEG=ON",
+                "-DENABLE_BROTLI=OFF",
+                "-DENABLE_HARFBUZZ=OFF",
+                "-DWITH_PNG=ON",
+                "-DCMAKE_REQUIRE_FIND_PACKAGE_PNG=ON",
                 "-DENABLE_LCMS=OFF",
                 "-DWITH_Cairo=OFF",
                 "-DBUILD_GTK_TESTS=OFF",
@@ -55,8 +60,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://poppler.freedesktop.org/poppler-26.01.0.tar.xz",
-                    "sha256": "1cb944a4b88847f5fb6551683bc799db59f04990f5d8be07aba2acbf38601089"
+                    "url": "https://poppler.freedesktop.org/poppler-26.10.0.tar.xz",
+                    "sha256": "6792cb7c69205007ad87d2e936cecc5b3a31fac29ab54ffc3175fdb6b2a6ce35"
                 }
             ]
         }
