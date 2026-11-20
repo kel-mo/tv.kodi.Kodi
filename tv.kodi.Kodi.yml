@@ -427,8 +427,8 @@ modules:
       - /bin
     sources:
       - type: archive
-        url: https://github.com/sahlberg/libnfs/archive/libnfs-8.0.0.tar.gz
-        sha512: d36127b8c2683b2a80b7e7f27b7c02f58951ca27da0a5e8984c979def9ad3a5947dedb7a0f890e7013d68bf58b79b29298526013f62b430a8edbcf4c77f557e4
+        url: https://github.com/sahlberg/libnfs/archive/libnfs-8.1.0.tar.gz
+        sha512: 29a07c5fbba638738eb9b5443f4d1be0c424b8a5bf6982c40fb791123cbefdd930fff0b04d5debb21151991168f3ebaebab6e7f03bc1c64013e62040bb6a55f4
         x-checker-data:
           type: anitya
           project-id: 7325
