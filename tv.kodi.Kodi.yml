@@ -862,7 +862,7 @@ modules:
       # PEP 484 stubs for addon authors, kodi-addon-dev material
       - /share/kodi/python-stubs
 
-  # pvr.argustv, pvr.filmon, pvr.pctv, pvr.stalker, visualization.shadertoy
+  # pvr.argustv, pvr.filmon, pvr.kofin, pvr.pctv, pvr.stalker, visualization.shadertoy
   - name: jsoncpp
     buildsystem: cmake-ninja
     builddir: true
@@ -989,6 +989,7 @@ modules:
   - addons/pvr.hdhomerun/pvr.hdhomerun.json
   - addons/pvr.hts/pvr.hts.json
   - addons/pvr.iptvsimple/pvr.iptvsimple.json
+  - addons/pvr.kofin/pvr.kofin.json
   - addons/pvr.mediaportal.tvserver/pvr.mediaportal.tvserver.json
   - addons/pvr.mythtv/pvr.mythtv.json
   - addons/pvr.nextpvr/pvr.nextpvr.json
@@ -1608,6 +1609,11 @@ add-extensions:
     no-autodownload: false
   tv.kodi.Kodi.Addon.pvr.iptvsimple:
     directory: lib/kodi/addons/pvr.iptvsimple
+    bundle: true
+    autodelete: true
+    no-autodownload: false
+  tv.kodi.Kodi.Addon.pvr.kofin:
+    directory: lib/kodi/addons/pvr.kofin
     bundle: true
     autodelete: true
     no-autodownload: false
