@@ -279,10 +279,6 @@
                     "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/39f924b810e561fd86b2558b6711ca68d4363f68.tar.gz",
                     "sha256": "8c5a5dae1baf6b8eabe6eb04625940eac8af4f1bf3ae3121c28dbc1583d36553",
                     "dest": "Externals/Vulkan-Headers"
-                },
-                {
-                    "type": "patch",
-                    "path": "../../patches/libretro-dolphin-vulkan-first-switch.patch"
                 }
             ]
         }

@@ -110,6 +110,11 @@ Kodi itself is only bumped by the checker when a release tag appears. While
 the beta branch tracks Kodi master, update the `commit:` under the
 `xbmc/xbmc.git` source by hand after `update-addons`, before building.
 
+The `xbmc-master` branch tracks Kodi master and carries no patches that are
+waiting to go upstream; it is never pushed to Flathub. `make update-sources`
+moves its Kodi source to the newest commit on master, and it installs as the
+`xbmc-master` Flatpak branch so it can sit beside `stable` and `beta`.
+
 ## Contributing
 
 The list of binary addons in each branch of Kodi may be found

@@ -140,29 +140,11 @@ modules:
         dest-filename: 0001-v4l2-request.patch
         only-arches:
           - aarch64
-      # v4l2-drmprime (from LibreELEC) gives the v4l2m2m wrappers for stateful decoders (Qualcomm Iris) DRM PRIME output
-      - type: file
-        url: https://raw.githubusercontent.com/LibreELEC/LibreELEC.tv/cd0c6aab93d91cfd1a6043753c80616f551f5218/packages/multimedia/ffmpeg/patches/v4l2-drmprime/0001-v4l2-drmprime.patch
-        sha256: 3406cb4eca1aa2f44d62102a99a393e13545bd92a64bd95a9b4d20fbaedab7ae
-        dest-filename: 0001-v4l2-drmprime.patch
-        only-arches:
-          - aarch64
-      - type: file
-        path: patches/ffmpeg-v4l2m2m-source-change-last-buffer.patch
-        only-arches:
-          - aarch64
-      - type: file
-        path: patches/ffmpeg-v4l2m2m-p010.patch
-        only-arches:
-          - aarch64
       - type: shell
         only-arches:
           - aarch64
         commands:
           - patch -p1 < 0001-v4l2-request.patch
-          - patch -p1 < 0001-v4l2-drmprime.patch
-          - patch -p1 < ffmpeg-v4l2m2m-source-change-last-buffer.patch
-          - patch -p1 < ffmpeg-v4l2m2m-p010.patch
   - name: flatbuffers
     buildsystem: cmake-ninja
     config-opts:
@@ -338,8 +320,6 @@ modules:
           type: anitya
           project-id: 21468
           url-template: https://github.com/Pulse-Eight/libcec/archive/libcec-$version.tar.gz
-      - type: patch
-        path: patches/libcec-client-stop-wake.patch
   - name: libdisplay-info
     buildsystem: meson
     config-opts:
@@ -789,41 +769,15 @@ modules:
     sources:
       - type: git
         url: https://github.com/xbmc/xbmc.git
-        commit: 32a392b5831839e99dadfc0c67fd62bdfdce981b
+        commit: 99509b9bfacc7112bd81c7b5cd2f1133da1abcca
         x-checker-data:
-          type: git
-          tag-pattern: ^(\d+\.\d+(?:\w+)?(?:-\w+)?)$
-          versions:
-            '>': 22.0rc2-Piers
+          type: json
+          url: https://api.github.com/repos/xbmc/xbmc/commits/master
+          commit-query: .sha
+          version-query: .sha[0:10]
+          timestamp-query: .commit.committer.date
       - type: patch
         path: patches/kodi.sh.in.patch
-      - type: patch
-        path: patches/kodi-gui-subpixel-textures.patch
-      - type: patch
-        path: patches/kodi-gui-mipmap-textures.patch
-      - type: patch
-        path: patches/kodi-ffmpegimage-icc.patch
-        use-git: true
-      - type: patch
-        path: patches/kodi-videoplayer-drmprime-v4l2m2m-first.patch
-      - type: patch
-        path: patches/kodi-retroplayer-audio-realtime.patch
-      - type: patch
-        path: patches/kodi-imagedecoder-decode-scale.patch
-      - type: patch
-        path: patches/kodi-addon-dialog-stop.patch
-      - type: patch
-        path: patches/kodi-script-abort-after-onquit.patch
-      - type: patch
-        path: patches/kodi-vaapi-keep-decoder.patch
-      - type: patch
-        path: patches/kodi-monitor-abort-late.patch
-      - type: patch
-        path: patches/kodi-plugin-stop-on-quit.patch
-      - type: patch
-        path: patches/kodi-videoplayer-probe-abort.patch
-      - type: patch
-        path: patches/kodi-videoplayer-multisource-abort.patch
       - type: file
         path: addon-list.txt
         dest: build/download/

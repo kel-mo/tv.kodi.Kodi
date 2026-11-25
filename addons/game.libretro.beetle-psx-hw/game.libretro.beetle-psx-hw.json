@@ -19,10 +19,6 @@
             "commit": "7f135ce881b61d1e7fd1bb4d1fad88311dac8f7b"
         },
         {
-            "type": "patch",
-            "path": "game.libretro.beetle-psx-hw-001-vulkan-renderer-settings.patch"
-        },
-        {
             "type": "file",
             "path": "../../tools/gen-addon-metainfo.sh"
         }
@@ -48,10 +44,6 @@
                     "type": "archive",
                     "url": "https://github.com/kodi-game/beetle-psx-libretro/archive/7efcb4d7298dab5731089724af2e5704634b80fe.tar.gz",
                     "sha256": "30139696e6be63f09bbf3db817b93be7750a13b14f910f6dd3e27986c9986ea9"
-                },
-                {
-                    "type": "patch",
-                    "path": "libretro-beetle-psx-hw-001-auto-renderer-on-gles.patch"
                 }
             ]
         }

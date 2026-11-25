@@ -1,7 +1,7 @@
 PROJECT ?= tv.kodi.Kodi
 CHECKER ?= flatpak run org.flathub.flatpak-external-data-checker
 GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD)
-BRANCH ?= $(if $(findstring beta,$(GIT_BRANCH)),beta,stable)
+BRANCH ?= $(if $(findstring beta,$(GIT_BRANCH)),beta,$(if $(findstring xbmc-master,$(GIT_BRANCH)),xbmc-master,stable))
 BUILDER_FLAGS ?=
 DEV_ADDONS ?=
 UPDATE_ADDONS ?=
