@@ -26,6 +26,8 @@ x-kodi-config-opts: &kodi-config-opts
   - -DADDONS_CONFIGURE_AT_STARTUP=OFF
   - -DVERBOSE=1
   - -DENABLE_TESTING=ON
+  # a fresh build dir gets a new precompiled header, which ccache never hits
+  - -DENABLE_PCH=OFF
   - -DENABLE_AIRTUNES=OFF
   - -DENABLE_ALSA=ON
   - -DENABLE_AVAHI=ON
