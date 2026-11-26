@@ -121,6 +121,47 @@ waiting to go upstream; it is never pushed to Flathub. `make update-sources`
 moves its Kodi source to the newest commit on master, and it installs as the
 `xbmc-master` Flatpak branch so it can sit beside `stable` and `beta`.
 
+## Nightly builds
+
+The nightly workflow, kept on its own in the `xbmc-master-nightly-ci` branch,
+builds the `xbmc-master` branch with the newest Kodi every night around 02:00
+Brisbane time, or when started from the Actions tab: it moves the Kodi source
+to the newest commit on master, updates the addons in `addons-dev.txt` and
+runs `make build-dev`. A good build is uploaded as an artifact holding the
+Flatpak repo, kept for 7 days, and the pins it used are pushed to the
+`xbmc-master-nightly` branch. A failed build publishes nothing.
+
+To install one, download the `kodi-xbmc-master-<commit>-X64-repo` artifact
+from the run (GitHub needs a login for artifact downloads), unpack it and
+install from it. The runtime comes from Flathub, so the `flathub` remote has to
+be there too. The addons in the dev build install with it:
+
+```
+gh run download <run-id> -R kel-mo/tv.kodi.Kodi -n kodi-xbmc-master-<commit>-X64-repo
+tar -xf kodi-repo.tar
+flatpak remote-add --user --no-gpg-verify kodi-nightly "file://$PWD/repo"
+flatpak install --user kodi-nightly tv.kodi.Kodi//xbmc-master
+```
+
+Installing it makes it the Kodi that the desktop launcher starts. If another
+Kodi Flatpak is installed, make that one current again with
+`flatpak make-current --user tv.kodi.Kodi beta` (or `stable`).
+
+Kodi master upgrades the databases of the profile it runs on, and the app data
+in `~/.var/app/tv.kodi.Kodi` is shared with every other install of Kodi, so
+start it with a profile of its own:
+
+```
+flatpak run --env=KODI_DATA=$HOME/.var/app/tv.kodi.Kodi/xbmc-master tv.kodi.Kodi//xbmc-master
+```
+
+For a newer nightly, replace `repo` with the one from its tar
+(`rm -rf repo && tar -xf kodi-repo.tar`) and run
+`flatpak update --user tv.kodi.Kodi//xbmc-master`.
+`flatpak uninstall --user tv.kodi.Kodi//xbmc-master` and
+`flatpak remote-delete --user kodi-nightly` remove it again; its profile stays
+in `~/.var/app/tv.kodi.Kodi/xbmc-master`.
+
 ## Contributing
 
 The list of binary addons in each branch of Kodi may be found
