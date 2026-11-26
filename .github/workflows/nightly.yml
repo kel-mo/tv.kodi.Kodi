@@ -80,7 +80,16 @@ jobs:
 
       - name: Disk use
         if: always()
-        run: df -h / && du -sh .flatpak-builder build-dir repo 2>/dev/null || true
+        run: df -h / && du -sh .flatpak-builder/* build-dir repo 2>/dev/null || true
+
+      - name: ccache stats
+        if: always() && steps.build.outcome != 'skipped'
+        # zeroed after printing, so the next run shows only its own
+        run: |
+          sdk=org.freedesktop.Sdk//$(sed -n "s/^runtime-version: '\(.*\)'/\1/p" tv.kodi.Kodi.yml)
+          cc() { flatpak run --user --filesystem="$STATE_DIR/ccache" --env=CCACHE_DIR="$STATE_DIR/ccache" --command=ccache "$sdk" "$@"; }
+          cc -p | grep -v '(default)' || true
+          cc -sv && cc -z || true
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: always() && steps.build.outcome != 'skipped'
