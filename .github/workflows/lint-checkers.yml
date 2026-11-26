@@ -21,3 +21,5 @@ jobs:
         uses: docker://ghcr.io/flathub-infra/flatpak-external-data-checker@sha256:3cc2e744bd1785b3c9ee6146562c8124b976a2b63fa9010816da1211d7844af7
         with:
           args: --lint tv.kodi.Kodi.yml
+      - name: Check kodi-addon-dev has the patches it needs
+        run: python3 tools/check_kodi_addon_dev.py tv.kodi.Kodi.yml
