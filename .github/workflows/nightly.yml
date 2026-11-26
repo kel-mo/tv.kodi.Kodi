@@ -1,0 +1,147 @@
+name: Nightly Kodi master
+
+on:
+  workflow_dispatch:
+  schedule:
+    # about 02:17 in Brisbane, off the hour; scheduled runs only start from the default branch
+    - cron: '17 16 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    outputs:
+      base: ${{ steps.bump.outputs.base }}
+      kodi: ${{ steps.bump.outputs.kodi }}
+    env:
+      STATE_DIR: ${{ github.workspace }}/.flatpak-builder
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: xbmc-master
+          persist-credentials: false
+
+      - name: Disk space
+        run: df -h /
+
+      - name: Install flatpak, flatpak-builder and the checker
+        run: |
+          # bwrap needs unprivileged user namespaces
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y flatpak
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder org.flathub.flatpak-external-data-checker
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .flatpak-builder
+            !.flatpak-builder/build
+          key: nightly-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: nightly-${{ runner.arch }}-
+
+      - name: Move Kodi to the newest commit on master
+        id: bump
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          flatpak run --filesystem="$PWD" org.flathub.flatpak-external-data-checker --edit-only --filter-type git tv.kodi.Kodi.yml
+          git diff --stat
+          kodi=$(grep -A1 'url: https://github.com/xbmc/xbmc.git' tv.kodi.Kodi.yml | sed -n 's/.*commit: //p')
+          echo "kodi=${kodi:0:10}" >> "$GITHUB_OUTPUT"
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Update the dev build's add-ons
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          make update-addons UPDATE_ADDONS="$(grep -v '^#' addons-dev.txt | xargs)"
+          git diff --stat
+
+      - name: Build
+        id: build
+        timeout-minutes: 300
+        # Builder runs flatpak on the host over the session bus, which a runner doesn't have
+        run: |
+          echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset}"
+          dbus-run-session -- make build-dev BRANCH=xbmc-master BUILDER_FLAGS="--state-dir=$STATE_DIR --install-deps-from=flathub"
+
+      - name: Disk use
+        if: always()
+        run: df -h / && du -sh .flatpak-builder build-dir repo 2>/dev/null || true
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.build.outcome != 'skipped'
+        with:
+          path: |
+            .flatpak-builder
+            !.flatpak-builder/build
+          key: nightly-${{ runner.arch }}-${{ github.run_id }}
+
+      - name: Pack the repo
+        run: tar -cf kodi-repo.tar repo
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kodi-xbmc-master-${{ steps.bump.outputs.kodi }}-${{ runner.arch }}-repo
+          path: kodi-repo.tar
+          retention-days: 7
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pins
+          path: |
+            tv.kodi.Kodi.yml
+            addon-list.txt
+            addons/
+          retention-days: 7
+
+  # only this job can push, and it runs nothing from the build
+  record:
+    needs: build
+    # a trial run from another branch publishes nothing
+    if: github.ref == 'refs/heads/xbmc-master-nightly-ci'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      BASE: ${{ needs.build.outputs.base }}
+      KODI: ${{ needs.build.outputs.kodi }}
+    steps:
+      - name: Check the build's outputs
+        run: '[[ $BASE =~ ^[0-9a-f]{40}$ && $KODI =~ ^[0-9a-f]{10}$ ]]'
+
+      # the commit that was built, not where xbmc-master is now
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.base }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pins
+          path: pins
+
+      - name: Record the pins on the nightly branch
+        run: |
+          cp pins/tv.kodi.Kodi.yml pins/addon-list.txt .
+          cp -r pins/addons/. addons/
+          rm -rf pins
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tv.kodi.Kodi.yml addon-list.txt addons
+          git diff --cached --stat
+          git diff --cached --quiet || git commit -m "nightly: Kodi master $KODI"
+          git push --force origin HEAD:refs/heads/xbmc-master-nightly
