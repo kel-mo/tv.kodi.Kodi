@@ -2,6 +2,15 @@ name: Nightly Kodi master
 
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: Move Kodi and the dev add-ons to their newest commits first
+        type: boolean
+        default: true
+      stop_at:
+        description: Stop the build before this module, to finish a cold start over several runs
+        type: string
+        default: ''
   schedule:
     # about 02:17 in Brisbane, off the hour; scheduled runs only start from the default branch
     - cron: '17 16 * * *'
@@ -25,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: xbmc-master
+          ref: xbmc-master-kodi-last
           persist-credentials: false
 
       - name: Disk space
@@ -45,25 +54,31 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
 
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: full
         with:
           path: |
-            .flatpak-builder
-            !.flatpak-builder/build
-          key: nightly-${{ runner.arch }}-${{ github.run_id }}
-          restore-keys: nightly-${{ runner.arch }}-
+            .flatpak-builder/cache
+            .flatpak-builder/ccache
+            .flatpak-builder/checksums
+          key: full-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: full-${{ runner.arch }}-
 
       - name: Move Kodi to the newest commit on master
         id: bump
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          BUMP: ${{ github.event_name != 'workflow_dispatch' || inputs.bump }}
         run: |
-          flatpak run --filesystem="$PWD" org.flathub.flatpak-external-data-checker --edit-only --filter-type git tv.kodi.Kodi.yml
-          git diff --stat
+          if [ "$BUMP" = true ]; then
+            flatpak run --filesystem="$PWD" org.flathub.flatpak-external-data-checker --edit-only --filter-type git tv.kodi.Kodi.yml
+            git diff --stat
+          fi
           kodi=$(grep -A1 'url: https://github.com/xbmc/xbmc.git' tv.kodi.Kodi.yml | sed -n 's/.*commit: //p')
           echo "kodi=${kodi:0:10}" >> "$GITHUB_OUTPUT"
           echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Update the dev build's add-ons
+        if: github.event_name != 'workflow_dispatch' || inputs.bump
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -73,14 +88,20 @@ jobs:
       - name: Build
         id: build
         timeout-minutes: 300
+        env:
+          STOP_AT: ${{ inputs.stop_at }}
         # Builder runs flatpak on the host over the session bus, which a runner doesn't have
         run: |
           echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset}"
-          dbus-run-session -- make build-dev BRANCH=xbmc-master BUILDER_FLAGS="--state-dir=$STATE_DIR --install-deps-from=flathub"
+          dbus-run-session -- make build BRANCH=xbmc-master BUILDER_FLAGS="--state-dir=$STATE_DIR --install-deps-from=flathub${STOP_AT:+ --stop-at=$STOP_AT}"
 
       - name: Disk use
         if: always()
-        run: df -h / && du -sh .flatpak-builder/* build-dir repo 2>/dev/null || true
+        run: |
+          df -h / && du -sh .flatpak-builder/* build-dir repo 2>/dev/null || true
+          # anything the build left running or mounted, for a timed-out run
+          ps -ef | grep -E '[b]wrap|[r]ofiles|[n]inja|[c]c1' || true
+          mount | grep fuse || true
 
       - name: ccache stats
         if: always() && steps.build.outcome != 'skipped'
@@ -95,9 +116,10 @@ jobs:
         if: always() && steps.build.outcome != 'skipped'
         with:
           path: |
-            .flatpak-builder
-            !.flatpak-builder/build
-          key: nightly-${{ runner.arch }}-${{ github.run_id }}
+            .flatpak-builder/cache
+            .flatpak-builder/ccache
+            .flatpak-builder/checksums
+          key: full-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Pack the repo
         run: tar -cf kodi-repo.tar repo
