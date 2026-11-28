@@ -14,7 +14,7 @@ desktop-file-name-suffix: ' (Beta)'
 x-kodi-source: &kodi-source
   type: git
   url: https://github.com/xbmc/xbmc.git
-  commit: 32a392b5831839e99dadfc0c67fd62bdfdce981b
+  commit: 69fd7fb48407482f1015d9ad3be195c657c27450
   x-checker-data:
     type: git
     tag-pattern: ^(\d+\.\d+(?:\w+)?(?:-\w+)?)$
@@ -1023,13 +1023,7 @@ modules:
       - type: patch
         path: patches/kodi-vaapi-keep-decoder.patch
       - type: patch
-        path: patches/kodi-monitor-abort-late.patch
-      - type: patch
         path: patches/kodi-plugin-stop-on-quit.patch
-      - type: patch
-        path: patches/kodi-videoplayer-probe-abort.patch
-      - type: patch
-        path: patches/kodi-videoplayer-multisource-abort.patch
       - type: file
         path: addon-list.txt
         dest: build/download/
