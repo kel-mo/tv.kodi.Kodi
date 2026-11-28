@@ -14,7 +14,7 @@ desktop-file-name-suffix: ' (Beta)'
 x-kodi-source: &kodi-source
   type: git
   url: https://github.com/xbmc/xbmc.git
-  commit: 99509b9bfacc7112bd81c7b5cd2f1133da1abcca
+  commit: 1eae04d85d47de716ceef007d2e0531469f6df37
   x-checker-data:
     type: json
     url: https://api.github.com/repos/xbmc/xbmc/commits/master
