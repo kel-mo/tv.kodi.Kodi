@@ -797,22 +797,22 @@ modules:
       - --version
     no-make-install: true
     post-install:
-      - 'cmake --install "$FLATPAK_BUILDER_BUILDDIR/_flatpak_build" --component kodi-addon-dev'
+      - cmake --install "$FLATPAK_BUILDER_BUILDDIR/_flatpak_build" --component kodi-addon-dev
       # configure also writes to /app: keep only the dev kit, kodi installs the rest
-      - 'test -s "$FLATPAK_BUILDER_BUILDDIR/.app-files" && find /app -type f | LC_ALL=C sort | LC_ALL=C
-        comm -13 "$FLATPAK_BUILDER_BUILDDIR/.app-files" - | grep -vE ''^/app/(include/kodi|share/kodi/cmake|lib/kodi/cmake|share/licenses)/''
-        | xargs -r -d ''\n'' rm -v'
-      - 'cd /app && find include/kodi share/kodi/cmake lib/kodi/cmake -type f | LC_ALL=C sort | xargs
-        sha256sum > share/kodi/kodi-addon-dev.sha256'
-      - 'sed "s|$FLATPAK_BUILDER_BUILDDIR|@BUILDDIR@|g" "$FLATPAK_BUILDER_BUILDDIR/_flatpak_build/CMakeCache.txt"
-        > /app/share/kodi/kodi-addon-dev.cmakecache'
+      - test -s "$FLATPAK_BUILDER_BUILDDIR/.app-files" && find /app -type f | LC_ALL=C sort | LC_ALL=C
+        comm -13 "$FLATPAK_BUILDER_BUILDDIR/.app-files" - | grep -vE '^/app/(include/kodi|share/kodi/cmake|lib/kodi/cmake|share/licenses)/'
+        | xargs -r -d '\n' rm -v
+      - cd /app && find include/kodi share/kodi/cmake lib/kodi/cmake -type f | LC_ALL=C sort | xargs sha256sum
+        > share/kodi/kodi-addon-dev.sha256
+      - sed "s|$FLATPAK_BUILDER_BUILDDIR|@BUILDDIR@|g" "$FLATPAK_BUILDER_BUILDDIR/_flatpak_build/CMakeCache.txt"
+        > /app/share/kodi/kodi-addon-dev.cmakecache
       - test -s /app/share/kodi/kodi-addon-dev.cmakecache
     sources:
       - *kodi-source
       # copy kodi's patches here only if one touches the dev kit; tools/check_kodi_addon_dev.py lists which
       - type: shell
         commands:
-          - 'find /app -type f | LC_ALL=C sort > .app-files'
+          - find /app -type f | LC_ALL=C sort > .app-files
           - test -s .app-files
 
   # pvr.argustv, pvr.filmon, pvr.kofin, pvr.pctv, pvr.stalker, visualization.shadertoy
@@ -1069,11 +1069,11 @@ modules:
       - /share/kodi/python-stubs
     post-install:
       # stop if kodi's dev kit or configure results differ from what the addons built against
-      - 'cd /app && sha256sum --quiet -c share/kodi/kodi-addon-dev.sha256'
-      - 'grep -E ''_FOUND:|_LIBRARY[A-Z_]*:|_INCLUDE_DIR[A-Z_]*:|_DIR:'' /app/share/kodi/kodi-addon-dev.cmakecache
+      - cd /app && sha256sum --quiet -c share/kodi/kodi-addon-dev.sha256
+      - grep -E '_FOUND:|_LIBRARY[A-Z_]*:|_INCLUDE_DIR[A-Z_]*:|_DIR:' /app/share/kodi/kodi-addon-dev.cmakecache
         | LC_ALL=C sort > /tmp/kodi-addon-dev.found && sed "s|$FLATPAK_BUILDER_BUILDDIR|@BUILDDIR@|g"
-        "$FLATPAK_BUILDER_BUILDDIR/_flatpak_build/CMakeCache.txt" | grep -E ''_FOUND:|_LIBRARY[A-Z_]*:|_INCLUDE_DIR[A-Z_]*:|_DIR:''
-        | LC_ALL=C sort | diff -u /tmp/kodi-addon-dev.found -'
+        "$FLATPAK_BUILDER_BUILDDIR/_flatpak_build/CMakeCache.txt" | grep -E '_FOUND:|_LIBRARY[A-Z_]*:|_INCLUDE_DIR[A-Z_]*:|_DIR:'
+        | LC_ALL=C sort | diff -u /tmp/kodi-addon-dev.found -
       - rm /app/share/kodi/kodi-addon-dev.sha256 /app/share/kodi/kodi-addon-dev.cmakecache
 
   - name: bdj
