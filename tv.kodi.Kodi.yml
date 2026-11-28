@@ -167,6 +167,7 @@ modules:
         x-checker-data:
           type: anitya
           project-id: 5405
+          versions: {<: '9.1'}
           url-template: https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n$version.tar.gz
       - type: file
         url: https://raw.githubusercontent.com/xbmc/xbmc/bc56c2fcd679a9bbb8c9d13b505a6c7285f7206c/tools/depends/target/ffmpeg/001-ffmpeg-all-libpostproc-plugin.patch
